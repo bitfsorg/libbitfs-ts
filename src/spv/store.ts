@@ -38,28 +38,31 @@ export class MemHeaderStore implements HeaderStore {
   private tipHeight = -1
 
   async putHeader(header: BlockHeader): Promise<void> {
+    // Deep copy to avoid mutating caller's object
+    const h = copyBlockHeader(header)
+
     // Compute hash if not set
-    if (!header.hash || header.hash.length === 0) {
-      header.hash = computeHeaderHash(header)
+    if (!h.hash || h.hash.length === 0) {
+      h.hash = computeHeaderHash(h)
     }
 
-    if (header.hash.length !== HASH_SIZE) {
+    if (h.hash.length !== HASH_SIZE) {
       throw new SpvError(
         `spv: header hash must be ${HASH_SIZE} bytes`,
         'ERR_INVALID_HEADER',
       )
     }
 
-    const key = hashKey(header.hash)
+    const key = hashKey(h.hash)
     if (this.byHash.has(key)) {
       throw new SpvError('spv: duplicate header', 'ERR_DUPLICATE_HEADER')
     }
 
-    this.byHash.set(key, header)
-    this.byHeight.set(header.height, header)
+    this.byHash.set(key, h)
+    this.byHeight.set(h.height, h)
 
-    if (this.tipHeight < 0 || header.height > this.tipHeight) {
-      this.tipHeight = header.height
+    if (this.tipHeight < 0 || h.height > this.tipHeight) {
+      this.tipHeight = h.height
     }
   }
 

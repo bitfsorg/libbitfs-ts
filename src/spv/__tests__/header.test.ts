@@ -299,10 +299,10 @@ describe('verifyPoW', () => {
     expect(() => verifyPoW(h)).not.toThrow()
   })
 
-  it('tampered nonce fails', () => {
+  it('tampered bits fails', () => {
     const h = buildTestHeader(0, makeHash(0x00), makeHash(0x11))
-    // Set hash to all 0xFF (maximum value, definitely > any target)
-    h.hash = new Uint8Array(32).fill(0xff)
+    // Set bits to impossibly hard target — recomputed hash won't satisfy it
+    h.bits = 0x03000001
     expectSpvError(() => verifyPoW(h), 'ERR_INSUFFICIENT_POW')
   })
 
@@ -496,6 +496,14 @@ describe('MemHeaderStore', () => {
 
     await store.putHeader(h)
     await expectSpvErrorAsync(store.putHeader(h), 'ERR_DUPLICATE_HEADER')
+  })
+
+  it('putHeader does not mutate input header', async () => {
+    const store = new MemHeaderStore()
+    const h = buildTestHeader(0, makeHash(0x00), makeHash(0x11))
+    const header = { ...h, hash: new Uint8Array(0) }
+    await store.putHeader(header)
+    expect(header.hash.length).toBe(0)
   })
 
   it('getHeader returns a deep copy', async () => {
