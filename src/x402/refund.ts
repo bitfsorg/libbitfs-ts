@@ -321,7 +321,7 @@ export async function buildBuyerRefundTx(
   const sigHash = Hash.hash256(preimage)
   const sig = params.buyerPrivKey.sign(sigHash)
 
-  const buyerSigBytes: number[] = [...(sig.toDER() as number[]), scope & 0xff]
+  const buyerSigBytes: number[] = [...sig.toDER(), scope & 0xff]
 
   // Build unlocking script: OP_0 <buyer_sig> <seller_sig> OP_FALSE
   // OP_0 is the dummy element required by CHECKMULTISIG (off-by-one bug workaround).

@@ -49,6 +49,16 @@ describe('splitIntoChunks', () => {
       .toThrow(ErrInvalidChunkSize())
   })
 
+  it('throws on NaN chunk size', () => {
+    expect(() => splitIntoChunks(new Uint8Array([1, 2, 3]), NaN))
+      .toThrow(ErrInvalidChunkSize())
+  })
+
+  it('throws on Infinity chunk size', () => {
+    expect(() => splitIntoChunks(new Uint8Array([1, 2, 3]), Infinity))
+      .toThrow(ErrInvalidChunkSize())
+  })
+
   it('uses DEFAULT_CHUNK_SIZE (1MB) when no chunkSize given', () => {
     expect(DEFAULT_CHUNK_SIZE).toBe(1024 * 1024)
     // 3MB data should produce 3 chunks with default 1MB.

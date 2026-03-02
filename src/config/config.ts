@@ -56,16 +56,19 @@ const FIELD_TO_KEY: Array<[keyof Config, string]> = [
  * Returns the default data directory path (~/.bitfs).
  * Falls back to ".bitfs" if the home directory cannot be determined
  * or when running in a browser environment.
+ *
+ * Uses globalThis.process.env.HOME (or USERPROFILE on Windows) instead
+ * of requiring Node.js 'os' / 'path' modules, keeping this module
+ * safe for browser bundlers.
  */
 export function defaultDataDir(): string {
   try {
-    // Dynamic require for Node.js environments; falls back in browsers.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const os = globalThis.process ? require('os') : null
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const path = globalThis.process ? require('path') : null
-    if (os && path) {
-      return path.join(os.homedir(), '.bitfs')
+    const home =
+      globalThis.process?.env?.HOME ??
+      globalThis.process?.env?.USERPROFILE ??
+      ''
+    if (home) {
+      return home + (home.endsWith('/') || home.endsWith('\\') ? '' : '/') + '.bitfs'
     }
     return '.bitfs'
   } catch {
@@ -267,18 +270,12 @@ export async function saveConfig(path: string, cfg: Config): Promise<void> {
 
 /** Returns the path to the config file within the data directory. */
 export function configPath(dataDir: string): string {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const path = globalThis.process ? require('path') : null
-    if (path) {
-      return path.join(dataDir, 'config')
-    }
-  } catch {
-    // Fall through to manual join.
-  }
-  // Browser fallback: simple concatenation with separator normalization.
+  // Pure string join — no Node.js module imports needed.
   const sep = '/'
-  const base = dataDir.endsWith(sep) ? dataDir.slice(0, -1) : dataDir
+  const base =
+    dataDir.endsWith(sep) || dataDir.endsWith('\\')
+      ? dataDir.slice(0, -1)
+      : dataDir
   return base + sep + 'config'
 }
 
