@@ -16,6 +16,7 @@ import type {
   PaymentOutput,
 } from './types.js'
 import { validateCompressedPubKey } from './uri.js'
+import { hexToBytes } from '../util.js'
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -40,20 +41,21 @@ const CAP_PKI_FULL = '6745385c3fc0'
 /** Default HTTP client backed by the global `fetch` function. */
 export const defaultHTTPClient: HTTPClient = {
   async get(url: string): Promise<Response> {
-    return fetch(url)
+    return fetch(url, { signal: AbortSignal.timeout(30_000) })
   },
 }
 
 /** Default POST client backed by the global `fetch` function. */
 export const defaultPostClient: PostClient = {
   async get(url: string): Promise<Response> {
-    return fetch(url)
+    return fetch(url, { signal: AbortSignal.timeout(30_000) })
   },
   async post(url: string, contentType: string, body: string): Promise<Response> {
     return fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': contentType },
       body,
+      signal: AbortSignal.timeout(30_000),
     })
   },
 }
@@ -71,6 +73,43 @@ function validateCapabilityHost(capHost: string, originalDomain: string): boolea
   const ch = capHost.toLowerCase()
   const od = originalDomain.toLowerCase()
   return ch === od || ch.endsWith('.' + od)
+}
+
+// ---------------------------------------------------------------------------
+// Bounded body reader
+// ---------------------------------------------------------------------------
+
+async function readBoundedBody(resp: Response, maxSize: number, label: string): Promise<string> {
+  const contentLength = resp.headers.get('content-length')
+  if (contentLength && parseInt(contentLength, 10) > maxSize) {
+    throw new PaymailDiscoveryError(`${label} response exceeds maximum size`)
+  }
+  const reader = resp.body?.getReader()
+  if (!reader) {
+    return resp.text()
+  }
+  const chunks: Uint8Array[] = []
+  let totalBytes = 0
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      totalBytes += value.length
+      if (totalBytes > maxSize) {
+        throw new PaymailDiscoveryError(`${label} response exceeds maximum size`)
+      }
+      chunks.push(value)
+    }
+  } finally {
+    reader.releaseLock()
+  }
+  const combined = new Uint8Array(totalBytes)
+  let offset = 0
+  for (const chunk of chunks) {
+    combined.set(chunk, offset)
+    offset += chunk.length
+  }
+  return new TextDecoder().decode(combined)
 }
 
 // ---------------------------------------------------------------------------
@@ -108,14 +147,10 @@ export async function discoverCapabilities(
 
   let bodyText: string
   try {
-    bodyText = await resp.text()
+    bodyText = await readBoundedBody(resp, MAX_PAYMAIL_RESPONSE_SIZE, 'discovery')
   } catch (err: unknown) {
+    if (err instanceof PaymailDiscoveryError) throw err
     throw new PaymailDiscoveryError(`reading response: ${String(err)}`)
-  }
-
-  // Enforce maximum response size
-  if (bodyText.length > MAX_PAYMAIL_RESPONSE_SIZE) {
-    bodyText = bodyText.slice(0, MAX_PAYMAIL_RESPONSE_SIZE)
   }
 
   let wk: WellKnownResponse
@@ -221,8 +256,9 @@ export async function resolvePKI(
 
   let bodyText: string
   try {
-    bodyText = await resp.text()
+    bodyText = await readBoundedBody(resp, MAX_PAYMAIL_RESPONSE_SIZE, 'PKI')
   } catch (err: unknown) {
+    if (err instanceof PaymailDiscoveryError) throw new PKIResolutionError(err.message)
     throw new PKIResolutionError(`reading response: ${String(err)}`)
   }
 
@@ -304,8 +340,9 @@ export async function resolvePaymentDestination(
 
   let bodyText: string
   try {
-    bodyText = await resp.text()
+    bodyText = await readBoundedBody(resp, MAX_PAYMAIL_RESPONSE_SIZE, 'payment destination')
   } catch (err: unknown) {
+    if (err instanceof PaymailDiscoveryError) throw new AddressResolutionError(err.message)
     throw new AddressResolutionError(`reading response: ${String(err)}`)
   }
 
@@ -323,22 +360,3 @@ export async function resolvePaymentDestination(
   return destResp.outputs
 }
 
-// ---------------------------------------------------------------------------
-// Internal hex helper
-// ---------------------------------------------------------------------------
-
-function hexToBytes(hex: string): Uint8Array {
-  if (hex.length % 2 !== 0) {
-    throw new Error('hex string has odd length')
-  }
-  const len = hex.length / 2
-  const bytes = new Uint8Array(len)
-  for (let i = 0; i < len; i++) {
-    const byte = parseInt(hex.slice(i * 2, i * 2 + 2), 16)
-    if (Number.isNaN(byte)) {
-      throw new Error(`invalid hex character at position ${i * 2}`)
-    }
-    bytes[i] = byte
-  }
-  return bytes
-}
