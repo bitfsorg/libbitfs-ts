@@ -50,3 +50,7 @@ export {
 
 // MutationBatch
 export { MutationBatch } from './batch.js'
+
+// TX parser
+export type { TxOutput, ParsedNodeOp } from './parse.js'
+export { parseTxNodeOps } from './parse.js'
