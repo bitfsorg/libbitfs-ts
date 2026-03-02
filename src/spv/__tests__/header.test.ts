@@ -306,6 +306,21 @@ describe('verifyPoW', () => {
     expectSpvError(() => verifyPoW(h), 'ERR_INSUFFICIENT_POW')
   })
 
+  it('rejects header with pre-set fraudulent hash', () => {
+    // A header with impossible bits but all-zero hash would pass PoW if hash is trusted
+    const bad: BlockHeader = {
+      version: 1,
+      prevBlock: makeHash(0x00),
+      merkleRoot: makeHash(0x11),
+      timestamp: 1700000000,
+      bits: 0x03000001, // impossibly hard target
+      nonce: 0,
+      height: 0,
+      hash: new Uint8Array(32), // all zeros — looks like valid PoW if trusted blindly
+    }
+    expectSpvError(() => verifyPoW(bad), 'ERR_INSUFFICIENT_POW')
+  })
+
   it('computes hash if not set', () => {
     const h = buildTestHeader(0, makeHash(0x00), makeHash(0x11))
     const originalHash = new Uint8Array(h.hash)
