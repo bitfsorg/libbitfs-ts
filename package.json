@@ -1,0 +1,37 @@
+{
+  "name": "@bitfs/libbitfs",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./method42": "./dist/method42/index.js",
+    "./wallet": "./dist/wallet/index.js",
+    "./config": "./dist/config/index.js",
+    "./metanet": "./dist/metanet/index.js",
+    "./storage": "./dist/storage/index.js",
+    "./tx": "./dist/tx/index.js",
+    "./spv": "./dist/spv/index.js",
+    "./network": "./dist/network/index.js",
+    "./x402": "./dist/x402/index.js",
+    "./paymail": "./dist/paymail/index.js",
+    "./revshare": "./dist/revshare/index.js"
+  },
+  "scripts": {
+    "build": "bun build ./src/index.ts --outdir ./dist --target node",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@bsv/sdk": "^2.0.5",
+    "@noble/hashes": "^1.7.0",
+    "hash-wasm": "^4.12.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  },
+  "license": "SEE LICENSE IN LICENSE"
+}
