@@ -1,0 +1,54 @@
+{
+  "method42_ecdh": {
+    "privkey_hex": "0000000000000000000000000000000000000000000000000000000000000002",
+    "pubkey_hex": "02c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5",
+    "shared_secret_hex": "e493dbf1c10d80f3581e4904930b1404cc6c13900ee0758474fa94abe8c4cd13"
+  },
+  "method42_derive_aes_key": {
+    "shared_secret_hex": "0101010101010101010101010101010101010101010101010101010101010101",
+    "key_hash_hex": "ab9a59bdfc47b86459243c9316ba9f03a6941ac97d01080af8266ee07be997c6",
+    "aes_key_hex": "02dc5254ac9282d29fb4500ea43fbf467b14ec5b0aef89073a9e1d86e0cb5fa8"
+  },
+  "method42_key_hash": {
+    "plaintext_hex": "deadbeef",
+    "key_hash_hex": "281dd50f6f56bc6e867fe73dd614a73c55a647a479704f64804b574cafb0f5c5"
+  },
+  "wallet_derive": {
+    "mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+    "seed_hex": "5eb00bbddcf069084889a8ab9155568165f5c453ccb85e70811aaed6f6da5fc19a5ac40b389cd370d086206dec8aa6c43daea6690f20ad3d8d48b2d2ce9e38e4",
+    "path": "m/44'/236'/0'/0/0",
+    "pubkey_hex": "03ded5f2bd986575aa364aafdf80756d8e215752f38a6ab217923a9dc314d37c71"
+  },
+  "metanet_child_entry": {
+    "entry": {
+      "index": 42,
+      "name": "test.txt",
+      "type": 0,
+      "pubkey_hex": "020102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+      "hardened": true
+    },
+    "serialized_hex": "2a0000000800746573742e7478740000000021020102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f2001"
+  },
+  "revshare_registry": {
+    "state": {
+      "node_id_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "total_shares": 10000,
+      "entries": [
+        {
+          "address_hex": "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3",
+          "share": 6000
+        },
+        {
+          "address_hex": "b0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3",
+          "share": 4000
+        }
+      ],
+      "mode_flags": 1
+    },
+    "serialized_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f000000000000271000000002a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b30000000000001770b0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c30000000000000fa001"
+  },
+  "spv_double_hash": {
+    "data_hex": "0102030405",
+    "hash_hex": "a26baf5a9a07d9eb7ba10f43924dcdf3f75f0abf066cd9f0c76f983121302e01"
+  }
+}

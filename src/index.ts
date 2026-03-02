@@ -1,1 +1,13 @@
 export { BitfsError } from './errors.js'
+
+export * as method42 from './method42/index.js'
+export * as wallet from './wallet/index.js'
+export * as config from './config/index.js'
+export * as metanet from './metanet/index.js'
+export * as storage from './storage/index.js'
+export * as tx from './tx/index.js'
+export * as spv from './spv/index.js'
+export * as network from './network/index.js'
+export * as x402 from './x402/index.js'
+export * as paymail from './paymail/index.js'
+export * as revshare from './revshare/index.js'
