@@ -23,6 +23,9 @@ export type {
   HTLCFundingParams,
   HTLCFundingResult,
   SellerClaimParams,
+  SellerPreSignParams,
+  SellerPreSignResult,
+  BuyerRefundParams,
   PaymentHeaders,
   PaymentProof,
 } from './types.js'
@@ -60,6 +63,13 @@ export {
   paymentHeadersFromInvoice,
   paymentHeadersToHeaders,
 } from './headers.js'
+
+// Refund (pre-signed 2-of-2 multisig)
+export {
+  verifyHTLCFunding,
+  buildSellerPreSignedRefund,
+  buildBuyerRefundTx,
+} from './refund.js'
 
 // Verification
 export { verifyPayment, parseHTLCPreimage } from './verify.js'

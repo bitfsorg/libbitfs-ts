@@ -194,3 +194,63 @@ export interface PaymentProof {
   /** Invoice ID for tracking. */
   invoiceID: Uint8Array
 }
+
+// ---------------------------------------------------------------------------
+// Refund (pre-signed 2-of-2 multisig)
+// ---------------------------------------------------------------------------
+
+/**
+ * SellerPreSignParams holds parameters for the seller's pre-signed refund transaction.
+ * The seller signs first (half of the 2-of-2 multisig), then hands the partially
+ * signed tx + signature to the buyer who adds the second signature.
+ */
+export interface SellerPreSignParams {
+  /** 32-byte HTLC funding tx hash. */
+  fundingTxID: Uint8Array
+  /** HTLC output index in funding tx. */
+  fundingVout: number
+  /** HTLC output amount. */
+  fundingAmount: bigint
+  /** HTLC locking script bytes. */
+  htlcScript: Uint8Array
+  /** Signs the refund (seller's half of 2-of-2). */
+  sellerPrivKey: PrivateKey
+  /** 20-byte buyer P2PKH destination. */
+  buyerOutputAddr: Uint8Array
+  /** Refund timeout in blocks (0 = DefaultHTLCTimeout). Must be in [MinHTLCTimeout, MaxHTLCTimeout]. */
+  timeout: number
+  /** Satoshis per byte (0 = use default). */
+  feeRate: number
+}
+
+/**
+ * SellerPreSignResult holds the result of the seller's pre-signed refund.
+ */
+export interface SellerPreSignResult {
+  /** Serialized transaction (without unlocking script). */
+  txBytes: Uint8Array
+  /** Seller's DER signature + sighash flag byte. */
+  sellerSig: Uint8Array
+}
+
+/**
+ * BuyerRefundParams holds parameters for the buyer refund transaction.
+ * The buyer takes the seller's pre-signed tx and adds their signature to
+ * complete the 2-of-2 multisig refund.
+ */
+export interface BuyerRefundParams {
+  /** Serialized tx from SellerPreSignResult.txBytes. */
+  sellerPreSignedTx: Uint8Array
+  /** Seller's signature from SellerPreSignResult.sellerSig. */
+  sellerSig: Uint8Array
+  /** HTLC locking script bytes. */
+  htlcScript: Uint8Array
+  /** HTLC output amount (for sighash computation). */
+  fundingAmount: bigint
+  /** Signs the refund (buyer's half of 2-of-2). */
+  buyerPrivKey: PrivateKey
+  /** Optional: expected HTLC funding TxID (32 bytes); undefined skips check. */
+  fundingTxID?: Uint8Array
+  /** Optional: expected HTLC funding output index. */
+  fundingVout?: number
+}
