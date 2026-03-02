@@ -41,12 +41,12 @@ describe('splitIntoChunks', () => {
 
   it('throws on zero chunk size', () => {
     expect(() => splitIntoChunks(new Uint8Array([1, 2, 3]), 0))
-      .toThrow(ErrInvalidChunkSize)
+      .toThrow(ErrInvalidChunkSize())
   })
 
   it('throws on negative chunk size', () => {
     expect(() => splitIntoChunks(new Uint8Array([1, 2, 3]), -1))
-      .toThrow(ErrInvalidChunkSize)
+      .toThrow(ErrInvalidChunkSize())
   })
 
   it('uses DEFAULT_CHUNK_SIZE (1MB) when no chunkSize given', () => {
@@ -105,7 +105,7 @@ describe('recombineChunks', () => {
     const badHash = fillBytes(0xFF, 32)
 
     expect(() => recombineChunks(chunks, badHash))
-      .toThrow(ErrRecombinationHashMismatch)
+      .toThrow(ErrRecombinationHashMismatch())
   })
 
   it('handles empty chunks with correct hash', () => {

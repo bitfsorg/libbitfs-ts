@@ -2,6 +2,7 @@ import { Hash } from '@bsv/sdk'
 import type { Store } from './types.js'
 import { KEY_HASH_SIZE } from './types.js'
 import { ErrNotFound, ErrInvalidKeyHash, StorageError } from './errors.js'
+import { timingSafeEqual, toHex } from '../util.js'
 
 /** MaxContentResponseSize is the maximum allowed response body size (1 GB). */
 export const MAX_CONTENT_RESPONSE_SIZE = 1 << 30
@@ -55,7 +56,7 @@ export class ContentResolver {
 
         // Verify content hash before trusting remote data.
         const actualHash = new Uint8Array(Hash.sha256(data))
-        if (!bytesEqual(actualHash, keyHash)) {
+        if (!timingSafeEqual(actualHash, keyHash)) {
           // Hash mismatch — skip this endpoint.
           continue
         }
@@ -80,7 +81,7 @@ export class ContentResolver {
 
   private async fetchFromEndpoint(baseURL: string, hashHex: string): Promise<Uint8Array> {
     const url = `${baseURL}/_bitfs/data/${hashHex}`
-    const resp = await fetch(url)
+    const resp = await fetch(url, { signal: AbortSignal.timeout(30_000) })
 
     if (!resp.ok) {
       throw new Error(`resolver: endpoint ${baseURL}: HTTP ${resp.status}`)
@@ -98,18 +99,3 @@ export class ContentResolver {
   }
 }
 
-function toHex(data: Uint8Array): string {
-  let hex = ''
-  for (let i = 0; i < data.length; i++) {
-    hex += data[i].toString(16).padStart(2, '0')
-  }
-  return hex
-}
-
-function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.length !== b.length) return false
-  for (let i = 0; i < a.length; i++) {
-    if (a[i] !== b[i]) return false
-  }
-  return true
-}

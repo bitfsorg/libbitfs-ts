@@ -5,6 +5,7 @@
 import type { BlockchainService, MerkleProofData, TxStatus } from './types.js'
 import { RPCClient, hexToBytes, reverseBytes, bytesToHex, doubleHash } from './rpc.js'
 import { sha256 } from '@noble/hashes/sha256'
+import { timingSafeEqual } from '../util.js'
 
 // ---------------------------------------------------------------------------
 // SPV types (local definitions until spv module is implemented)
@@ -231,7 +232,7 @@ export class SPVClient {
 
     // Single-tx block: txHash IS the Merkle root, no branches needed.
     if (proof.branches.length === 0 && proof.index === 0) {
-      if (!bytesEqual(txidInternal, header.merkleRoot)) {
+      if (!timingSafeEqual(txidInternal, header.merkleRoot)) {
         throw new Error(
           `network: merkle proof verification failed for tx ${txid}`,
         )
@@ -242,7 +243,7 @@ export class SPVClient {
         proof.index,
         proof.branches,
       )
-      if (!bytesEqual(computedRoot, header.merkleRoot)) {
+      if (!timingSafeEqual(computedRoot, header.merkleRoot)) {
         throw new Error(
           `network: merkle proof verification failed for tx ${txid}`,
         )
@@ -316,7 +317,7 @@ export class SPVClient {
       if (h === 0) {
         // Genesis block: PrevBlock should be all zeros.
         const zeros = new Uint8Array(32)
-        if (!bytesEqual(header.prevBlock, zeros)) {
+        if (!timingSafeEqual(header.prevBlock, zeros)) {
           throw new Error(
             'network: genesis block has non-zero PrevBlock',
           )
@@ -328,7 +329,7 @@ export class SPVClient {
             `network: previous header at ${h - 1} not found`,
           )
         }
-        if (!bytesEqual(header.prevBlock, prevHeader.hash)) {
+        if (!timingSafeEqual(header.prevBlock, prevHeader.hash)) {
           throw new Error(
             `network: chain break at height ${h}: PrevBlock does not match header at ${h - 1}`,
           )
@@ -341,18 +342,6 @@ export class SPVClient {
 
     return synced
   }
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.length !== b.length) return false
-  for (let i = 0; i < a.length; i++) {
-    if (a[i] !== b[i]) return false
-  }
-  return true
 }
 
 // Export for testing.

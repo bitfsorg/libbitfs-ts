@@ -59,12 +59,12 @@ describe('ECDH', () => {
 
   it('throws on null private key', () => {
     const priv = PrivateKey.fromRandom()
-    expect(() => ecdh(null, priv.toPublicKey())).toThrow(ErrNilPrivateKey)
+    expect(() => ecdh(null, priv.toPublicKey())).toThrow(ErrNilPrivateKey())
   })
 
   it('throws on null public key', () => {
     const priv = PrivateKey.fromRandom()
-    expect(() => ecdh(priv, null)).toThrow(ErrNilPublicKey)
+    expect(() => ecdh(priv, null)).toThrow(ErrNilPublicKey())
   })
 
   it('is deterministic', () => {

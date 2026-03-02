@@ -9,6 +9,7 @@
 import { Hash } from '@bsv/sdk'
 import type { ChildEntry } from './types.js'
 import { serializeChildEntry } from './tlv.js'
+import { timingSafeEqual } from '../util.js'
 
 /**
  * Computes SHA256(SHA256(data)), matching Bitcoin's hash function.
@@ -141,7 +142,7 @@ export function verifyChildMembership(
   // Walk the proof path
   if (proof.length === 0 && index === 0) {
     // Single child case: leaf is root
-    return bytesEqual(hash, merkleRoot)
+    return timingSafeEqual(hash, merkleRoot)
   }
 
   for (let i = 0; i < proof.length; i++) {
@@ -159,14 +160,6 @@ export function verifyChildMembership(
     hash = doubleHash(combined)
   }
 
-  return bytesEqual(hash, merkleRoot)
+  return timingSafeEqual(hash, merkleRoot)
 }
 
-/** Compares two Uint8Arrays for byte-level equality. */
-function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.length !== b.length) return false
-  for (let i = 0; i < a.length; i++) {
-    if (a[i] !== b[i]) return false
-  }
-  return true
-}

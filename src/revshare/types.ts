@@ -1,3 +1,5 @@
+import { timingSafeEqual } from '../util.js'
+
 /**
  * RevShareEntry represents a shareholder's record in the registry.
  * address: 20-byte P2PKH address hash
@@ -70,17 +72,10 @@ export function findEntry(
   addr: Uint8Array,
 ): [number, RevShareEntry | undefined] {
   for (let i = 0; i < state.entries.length; i++) {
-    if (bytesEqual(state.entries[i].address, addr)) {
+    if (timingSafeEqual(state.entries[i].address, addr)) {
       return [i, state.entries[i]]
     }
   }
   return [-1, undefined]
 }
 
-function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.length !== b.length) return false
-  for (let i = 0; i < a.length; i++) {
-    if (a[i] !== b[i]) return false
-  }
-  return true
-}

@@ -10,31 +10,17 @@ import {
   ErrInvalidBaseDir,
   StorageError,
 } from './errors.js'
+import { toHex, hexToBytes } from '../util.js'
 
 /**
- * Converts a key_hash to a hex string.
- */
-function toHex(data: Uint8Array): string {
-  let hex = ''
-  for (let i = 0; i < data.length; i++) {
-    hex += data[i].toString(16).padStart(2, '0')
-  }
-  return hex
-}
-
-/**
- * Converts a hex string to Uint8Array.
+ * Safely converts a hex string to Uint8Array, returning null on invalid input.
  */
 function fromHex(hex: string): Uint8Array | null {
-  if (hex.length % 2 !== 0) return null
-  const bytes = new Uint8Array(hex.length / 2)
-  for (let i = 0; i < hex.length; i += 2) {
-    const high = parseInt(hex[i], 16)
-    const low = parseInt(hex[i + 1], 16)
-    if (isNaN(high) || isNaN(low)) return null
-    bytes[i / 2] = (high << 4) | low
+  try {
+    return hexToBytes(hex)
+  } catch {
+    return null
   }
-  return bytes
 }
 
 /**
@@ -80,7 +66,7 @@ export class FileStore implements Store {
    */
   static async create(baseDir: string): Promise<FileStore> {
     if (!baseDir) {
-      throw ErrInvalidBaseDir
+      throw ErrInvalidBaseDir()
     }
     try {
       await mkdir(baseDir, { recursive: true, mode: 0o700 })
@@ -105,7 +91,7 @@ export class FileStore implements Store {
   async put(keyHash: Uint8Array, ciphertext: Uint8Array): Promise<void> {
     validateKeyHash(keyHash)
     if (!ciphertext || ciphertext.length === 0) {
-      throw ErrEmptyContent
+      throw ErrEmptyContent()
     }
 
     const shard = this.shardDir(keyHash)
@@ -150,7 +136,7 @@ export class FileStore implements Store {
       return new Uint8Array(await readFile(path))
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-        throw ErrNotFound
+        throw ErrNotFound()
       }
       throw new StorageError(
         `storage: I/O failure: ${(err as Error).message}`,
@@ -185,7 +171,7 @@ export class FileStore implements Store {
       await unlink(path)
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-        throw ErrNotFound
+        throw ErrNotFound()
       }
       throw new StorageError(
         `storage: I/O failure: ${(err as Error).message}`,
@@ -203,7 +189,7 @@ export class FileStore implements Store {
       return info.size
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-        throw ErrNotFound
+        throw ErrNotFound()
       }
       throw new StorageError(
         `storage: I/O failure: ${(err as Error).message}`,

@@ -1,6 +1,7 @@
 import type { Invoice } from './types.js'
 import { ErrInvalidParams } from './errors.js'
 import { CAPSULE_HASH_LEN } from './types.js'
+import { toHex } from '../util.js'
 
 // ---------------------------------------------------------------------------
 // Price calculation
@@ -45,14 +46,14 @@ export function newInvoice(
 ): Invoice {
   if (capsuleHash.length !== CAPSULE_HASH_LEN) {
     throw new Error(
-      `${ErrInvalidParams.message}: capsule hash must be ${CAPSULE_HASH_LEN} bytes, got ${capsuleHash.length}`,
+      `${ErrInvalidParams().message}: capsule hash must be ${CAPSULE_HASH_LEN} bytes, got ${capsuleHash.length}`,
     )
   }
   if (!paymentAddr) {
-    throw new Error(`${ErrInvalidParams.message}: payment address is required`)
+    throw new Error(`${ErrInvalidParams().message}: payment address is required`)
   }
   if (ttlSeconds <= 0) {
-    throw new Error(`${ErrInvalidParams.message}: ttlSeconds must be > 0`)
+    throw new Error(`${ErrInvalidParams().message}: ttlSeconds must be > 0`)
   }
 
   const id = generateInvoiceID()
@@ -87,12 +88,6 @@ export function isExpired(invoice: Invoice): boolean {
 function generateInvoiceID(): string {
   const bytes = new Uint8Array(16)
   crypto.getRandomValues(bytes)
-  return hexFromBytes(bytes)
+  return toHex(bytes)
 }
 
-/** Convert Uint8Array to hex string. */
-function hexFromBytes(bytes: Uint8Array): string {
-  return Array.from(bytes)
-    .map(b => b.toString(16).padStart(2, '0'))
-    .join('')
-}

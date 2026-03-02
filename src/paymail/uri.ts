@@ -4,6 +4,7 @@
 
 import { InvalidURIError, InvalidPubKeyError } from './errors.js'
 import { AddressType, type ParsedURI } from './types.js'
+import { hexToBytes as utilHexToBytes, toHex } from '../util.js'
 
 /** Hex-encoded length of a compressed secp256k1 public key (33 bytes = 66 hex chars). */
 const COMPRESSED_PUB_KEY_HEX_LEN = 66
@@ -74,7 +75,7 @@ export function parseURI(uri: string): ParsedURI {
     result.domain = domain
   } else if (isPubKeyHex(authority)) {
     // PubKey: 02/03 + 64 hex chars = 66 hex chars total
-    const pubKeyBytes = hexToBytes(authority)
+    const pubKeyBytes = utilHexToBytes(authority)
     result.type = AddressType.PubKey
     result.pubKey = pubKeyBytes
   } else {
@@ -116,25 +117,5 @@ export function validateCompressedPubKey(pub: Uint8Array): void {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Internal hex helpers
-// ---------------------------------------------------------------------------
-
-/** Decode a hex string to Uint8Array. */
-function hexToBytes(hex: string): Uint8Array {
-  const len = hex.length / 2
-  const bytes = new Uint8Array(len)
-  for (let i = 0; i < len; i++) {
-    bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16)
-  }
-  return bytes
-}
-
 /** Encode bytes to lowercase hex string. */
-export function bytesToHex(bytes: Uint8Array): string {
-  let hex = ''
-  for (const b of bytes) {
-    hex += b.toString(16).padStart(2, '0')
-  }
-  return hex
-}
+export { toHex as bytesToHex }

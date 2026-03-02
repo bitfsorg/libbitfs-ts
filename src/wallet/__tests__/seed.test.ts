@@ -122,8 +122,8 @@ describe('seedFromMnemonic', () => {
 // ---------------------------------------------------------------------------
 
 describe('encryptSeed / decryptSeed', () => {
-  // Argon2id with 64 MB memory is ~1.4s per call, so increase timeout for all crypto tests
-  it('round-trips correctly', { timeout: 10_000 }, async () => {
+  // Argon2id with 256 MB memory, t=10 iterations is ~15-20s per call in pure JS
+  it('round-trips correctly', { timeout: 120_000 }, async () => {
     const seed = new Uint8Array(64)
     for (let i = 0; i < seed.length; i++) seed[i] = i
     const password = 'test-password-123'
@@ -135,7 +135,7 @@ describe('encryptSeed / decryptSeed', () => {
     expect(decrypted).toEqual(seed)
   })
 
-  it('fails with wrong password', { timeout: 10_000 }, async () => {
+  it('fails with wrong password', { timeout: 120_000 }, async () => {
     const seed = new Uint8Array(64)
     const password = 'correct-password'
 
@@ -175,10 +175,10 @@ describe('encryptSeed / decryptSeed', () => {
       expect(dec1).toEqual(seed)
       expect(dec2).toEqual(seed)
     },
-    15_000,
+    240_000,
   )
 
-  it('produces correct output format (salt + nonce + ciphertext)', { timeout: 10_000 }, async () => {
+  it('produces correct output format (salt + nonce + ciphertext)', { timeout: 120_000 }, async () => {
     const seed = new Uint8Array(64)
     for (let i = 0; i < seed.length; i++) seed[i] = i * 3
 
@@ -201,7 +201,7 @@ describe('encryptSeed / decryptSeed', () => {
     expect(allZeroNonce).toBe(false)
   })
 
-  it('fails on corrupted ciphertext', { timeout: 10_000 }, async () => {
+  it('fails on corrupted ciphertext', { timeout: 120_000 }, async () => {
     const seed = new Uint8Array(64)
     for (let i = 0; i < seed.length; i++) seed[i] = i
     const password = 'correct-password'
@@ -214,7 +214,7 @@ describe('encryptSeed / decryptSeed', () => {
     await expect(decryptSeed(corrupted, password)).rejects.toThrow(DecryptionFailedError)
   })
 
-  it('round-trips with empty password', { timeout: 10_000 }, async () => {
+  it('round-trips with empty password', { timeout: 120_000 }, async () => {
     const seed = new Uint8Array(64)
     for (let i = 0; i < seed.length; i++) seed[i] = i + 100
 
@@ -223,7 +223,7 @@ describe('encryptSeed / decryptSeed', () => {
     expect(decrypted).toEqual(seed)
   })
 
-  it('round-trips with unicode password', { timeout: 10_000 }, async () => {
+  it('round-trips with unicode password', { timeout: 120_000 }, async () => {
     const seed = new Uint8Array(64)
     for (let i = 0; i < seed.length; i++) seed[i] = i + 50
     const password = '\u4f60\u597d\u4e16\u754c\ud83d\udd12'

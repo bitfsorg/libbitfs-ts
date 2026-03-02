@@ -28,6 +28,7 @@ import {
   buildOPReturnScript,
   signBatchResult,
 } from './sign.js'
+import { toHex } from '../util.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -35,14 +36,7 @@ import {
 
 /** Create a unique key for a UTXO based on its txID and vout. */
 function utxoKey(utxo: UTXO): string {
-  return hexFromBytes(utxo.txID) + ':' + utxo.vout
-}
-
-/** Convert Uint8Array to hex string. */
-function hexFromBytes(bytes: Uint8Array): string {
-  return Array.from(bytes)
-    .map(b => b.toString(16).padStart(2, '0'))
-    .join('')
+  return toHex(utxo.txID) + ':' + utxo.vout
 }
 
 // ---------------------------------------------------------------------------
@@ -297,7 +291,7 @@ export class MutationBatch {
       if (addedInputs.has(key)) continue
       addedInputs.add(key)
       sdkTx.addInput({
-        sourceTXID: hexFromBytes(op.inputUTXO.txID),
+        sourceTXID: toHex(op.inputUTXO.txID),
         sourceOutputIndex: op.inputUTXO.vout,
         sequence: 0xffffffff,
         unlockingScript: UnlockingScript.fromBinary([]),
@@ -310,7 +304,7 @@ export class MutationBatch {
       if (addedInputs.has(key)) continue
       addedInputs.add(key)
       sdkTx.addInput({
-        sourceTXID: hexFromBytes(fi.txID),
+        sourceTXID: toHex(fi.txID),
         sourceOutputIndex: fi.vout,
         sequence: 0xffffffff,
         unlockingScript: UnlockingScript.fromBinary([]),

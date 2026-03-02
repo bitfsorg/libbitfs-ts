@@ -21,7 +21,7 @@ import { followLinkCounted } from './link.js'
  */
 export function splitPath(path: string): string[] {
   if (path === '') {
-    throw ErrInvalidPath
+    throw ErrInvalidPath()
   }
 
   // Remove leading slash (absolute path)
@@ -63,15 +63,15 @@ export async function resolvePath(
 
   if (pathComponents.length > MAX_PATH_COMPONENTS) {
     throw new MetanetError(
-      `${ErrInvalidPath.message}: path too deep (${pathComponents.length} components, max ${MAX_PATH_COMPONENTS})`,
-      ErrInvalidPath.code,
+      `${ErrInvalidPath().message}: path too deep (${pathComponents.length} components, max ${MAX_PATH_COMPONENTS})`,
+      ErrInvalidPath().code,
     )
   }
 
   // Validate path components
   for (const comp of pathComponents) {
     if (comp === '') {
-      throw new MetanetError(`${ErrInvalidPath.message}: empty component in path`, ErrInvalidPath.code)
+      throw new MetanetError(`${ErrInvalidPath().message}: empty component in path`, ErrInvalidPath().code)
     }
   }
 
@@ -113,8 +113,8 @@ export async function resolvePath(
     // Current must be a directory to traverse into
     if (current.type !== NodeType.Dir) {
       throw new MetanetError(
-        `${ErrNotDirectory.message}: "${component}" is not a directory`,
-        ErrNotDirectory.code,
+        `${ErrNotDirectory().message}: "${component}" is not a directory`,
+        ErrNotDirectory().code,
       )
     }
 
@@ -122,8 +122,8 @@ export async function resolvePath(
     const entry = findChild(current, component)
     if (entry === null) {
       throw new MetanetError(
-        `${ErrChildNotFound.message}: "${component}" in directory`,
-        ErrChildNotFound.code,
+        `${ErrChildNotFound().message}: "${component}" in directory`,
+        ErrChildNotFound().code,
       )
     }
 
@@ -131,8 +131,8 @@ export async function resolvePath(
     const childNode = await store.getNodeByPubKey(entry.pubKey)
     if (childNode === null) {
       throw new MetanetError(
-        `${ErrNodeNotFound.message}: child "${component}"`,
-        ErrNodeNotFound.code,
+        `${ErrNodeNotFound().message}: child "${component}"`,
+        ErrNodeNotFound().code,
       )
     }
 
@@ -145,13 +145,13 @@ export async function resolvePath(
         remaining = budgetLeft
       }
       if (remaining <= 0) {
-        throw ErrTotalLinkBudgetExceeded
+        throw ErrTotalLinkBudgetExceeded()
       }
 
       const result = await followLinkCounted(store, resolvedNode, remaining)
       totalLinkFollows += result.hops
       if (totalLinkFollows > MAX_TOTAL_LINK_FOLLOWS) {
-        throw ErrTotalLinkBudgetExceeded
+        throw ErrTotalLinkBudgetExceeded()
       }
       resolvedNode = result.node
     }

@@ -29,8 +29,8 @@ const MAX_UINT32 = 0xffffffff
 export function serializeRegistry(state: RegistryState): Uint8Array {
   if (state.entries.length > MAX_UINT32) {
     throw new RevShareError(
-      `${ErrTooManyEntries.message}: ${state.entries.length} entries`,
-      ErrTooManyEntries.code,
+      `${ErrTooManyEntries().message}: ${state.entries.length} entries`,
+      ErrTooManyEntries().code,
     )
   }
 
@@ -74,8 +74,8 @@ export function serializeRegistry(state: RegistryState): Uint8Array {
 export function deserializeRegistry(data: Uint8Array): RegistryState {
   if (data.length < REGISTRY_HEADER_SIZE + REGISTRY_TRAILER_SIZE) {
     throw new RevShareError(
-      `${ErrInvalidRegistryData.message}: too short (${data.length} bytes)`,
-      ErrInvalidRegistryData.code,
+      `${ErrInvalidRegistryData().message}: too short (${data.length} bytes)`,
+      ErrInvalidRegistryData().code,
     )
   }
 
@@ -101,8 +101,8 @@ export function deserializeRegistry(data: Uint8Array): RegistryState {
     REGISTRY_TRAILER_SIZE
   if (data.length < expectedSize) {
     throw new RevShareError(
-      `${ErrInvalidRegistryData.message}: expected ${expectedSize} bytes for ${numEntries} entries, got ${data.length}`,
-      ErrInvalidRegistryData.code,
+      `${ErrInvalidRegistryData().message}: expected ${expectedSize} bytes for ${numEntries} entries, got ${data.length}`,
+      ErrInvalidRegistryData().code,
     )
   }
 
@@ -145,8 +145,8 @@ export function serializeShare(data: ShareData): Uint8Array {
 export function deserializeShare(data: Uint8Array): ShareData {
   if (!data || data.length !== SHARE_DATA_SIZE) {
     throw new RevShareError(
-      `${ErrInvalidShareData.message}: expected ${SHARE_DATA_SIZE} bytes, got ${data?.length ?? 0}`,
-      ErrInvalidShareData.code,
+      `${ErrInvalidShareData().message}: expected ${SHARE_DATA_SIZE} bytes, got ${data?.length ?? 0}`,
+      ErrInvalidShareData().code,
     )
   }
 
@@ -181,8 +181,8 @@ export function serializeISOPool(state: ISOPoolState): Uint8Array {
 export function deserializeISOPool(data: Uint8Array): ISOPoolState {
   if (!data || data.length !== ISO_POOL_SIZE) {
     throw new RevShareError(
-      `${ErrInvalidISOPoolData.message}: expected ${ISO_POOL_SIZE} bytes, got ${data?.length ?? 0}`,
-      ErrInvalidISOPoolData.code,
+      `${ErrInvalidISOPoolData().message}: expected ${ISO_POOL_SIZE} bytes, got ${data?.length ?? 0}`,
+      ErrInvalidISOPoolData().code,
     )
   }
 

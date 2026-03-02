@@ -2,6 +2,7 @@
 
 import { Hash } from '@bsv/sdk'
 import { HASH_SIZE } from './types.js'
+import { timingSafeEqual } from '../util.js'
 
 /**
  * Computes SHA256(SHA256(data)), matching Bitcoin's hash function.
@@ -77,7 +78,7 @@ export function verifyMerkleProof(
     return false
   }
 
-  return bytesEqual(computedRoot, expectedMerkleRoot)
+  return timingSafeEqual(computedRoot, expectedMerkleRoot)
 }
 
 /**
@@ -130,11 +131,3 @@ export function computeMerkleRootFromTxList(txIDs: Uint8Array[]): Uint8Array | n
   return tree[0]
 }
 
-/** Compares two Uint8Arrays for byte-level equality. */
-function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.length !== b.length) return false
-  for (let i = 0; i < a.length; i++) {
-    if (a[i] !== b[i]) return false
-  }
-  return true
-}

@@ -4,6 +4,7 @@ import type { UTXO } from './types.js'
 import { NilParamError, ScriptBuildError, SigningFailedError } from './errors.js'
 import type { BatchResult } from './types.js'
 import type { BatchNodeOp } from './types.js'
+import { toHex } from '../util.js'
 
 // ---------------------------------------------------------------------------
 // P2PKH script builders
@@ -116,7 +117,7 @@ export async function signBatchResult(
 
     // Set the source transaction output for sighash computation.
     sdkTx.inputs[i].sourceTransaction = undefined
-    sdkTx.inputs[i].sourceTXID = hexFromBytes(utxo.txID)
+    sdkTx.inputs[i].sourceTXID = toHex(utxo.txID)
 
     // Create a source transaction to feed the input.
     // We need to provide the output directly via a helper transaction.
@@ -170,12 +171,6 @@ export async function signBatchResult(
 
 /** Create a unique key for a UTXO based on its txID and vout. */
 function utxoKey(utxo: UTXO): string {
-  return hexFromBytes(utxo.txID) + ':' + utxo.vout
+  return toHex(utxo.txID) + ':' + utxo.vout
 }
 
-/** Convert Uint8Array to hex string. */
-function hexFromBytes(bytes: Uint8Array): string {
-  return Array.from(bytes)
-    .map(b => b.toString(16).padStart(2, '0'))
-    .join('')
-}

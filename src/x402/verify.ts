@@ -9,6 +9,7 @@ import {
   ErrInvalidPreimage,
 } from './errors.js'
 import { computeCapsuleHash } from '../method42/capsule.js'
+import { timingSafeEqual } from '../util.js'
 
 // ---------------------------------------------------------------------------
 // Payment verification
@@ -29,35 +30,35 @@ import { computeCapsuleHash } from '../method42/capsule.js'
  */
 export function verifyPayment(proof: PaymentProof, invoice: Invoice): string {
   if (proof == null) {
-    throw new Error(`${ErrInvalidParams.message}: nil payment proof`)
+    throw new Error(`${ErrInvalidParams().message}: nil payment proof`)
   }
   if (invoice == null) {
-    throw new Error(`${ErrInvalidParams.message}: nil invoice`)
+    throw new Error(`${ErrInvalidParams().message}: nil invoice`)
   }
 
   // Check invoice expiry.
   const now = Math.floor(Date.now() / 1000)
   if (now > invoice.expiry) {
-    throw ErrInvoiceExpired
+    throw ErrInvoiceExpired()
   }
 
   // Deserialize the transaction.
   if (proof.rawTx.length === 0) {
-    throw new Error(`${ErrInvalidTx.message}: empty raw transaction`)
+    throw new Error(`${ErrInvalidTx().message}: empty raw transaction`)
   }
 
   let tx: Transaction
   try {
     tx = Transaction.fromBinary(Array.from(proof.rawTx))
   } catch (err) {
-    throw new Error(`${ErrInvalidTx.message}: ${err}`)
+    throw new Error(`${ErrInvalidTx().message}: ${err}`)
   }
 
   // Decode the expected payment address to get the expected PKH.
   // BSV P2PKH address is base58check-encoded: [version(1) || pubKeyHash(20) || checksum(4)]
   const expectedPKH = addressToPKH(invoice.paymentAddr)
   if (expectedPKH == null) {
-    throw new Error(`${ErrInvalidParams.message}: invalid invoice address: ${invoice.paymentAddr}`)
+    throw new Error(`${ErrInvalidParams().message}: invalid invoice address: ${invoice.paymentAddr}`)
   }
 
   // Search for a matching output.
@@ -77,7 +78,7 @@ export function verifyPayment(proof: PaymentProof, invoice: Invoice): string {
       continue
     }
 
-    if (!uint8ArrayEqual(outputPKH, expectedPKH)) {
+    if (!timingSafeEqual(outputPKH, expectedPKH)) {
       continue
     }
 
@@ -85,7 +86,7 @@ export function verifyPayment(proof: PaymentProof, invoice: Invoice): string {
     const satoshis = BigInt(output.satoshis ?? 0)
     if (satoshis < invoice.price) {
       throw new Error(
-        `${ErrInsufficientPayment.message}: output has ${satoshis} satoshis, need ${invoice.price}`,
+        `${ErrInsufficientPayment().message}: output has ${satoshis} satoshis, need ${invoice.price}`,
       )
     }
 
@@ -93,7 +94,7 @@ export function verifyPayment(proof: PaymentProof, invoice: Invoice): string {
     return tx.id('hex') as string
   }
 
-  throw ErrNoMatchingOutput
+  throw ErrNoMatchingOutput()
 }
 
 // ---------------------------------------------------------------------------
@@ -122,14 +123,18 @@ export function parseHTLCPreimage(
   fileTxID?: Uint8Array,
 ): Uint8Array {
   if (spendingTx == null || spendingTx.length === 0) {
-    throw new Error(`${ErrInvalidPreimage.message}: empty spending transaction`)
+    throw new Error(`${ErrInvalidPreimage().message}: empty spending transaction`)
+  }
+
+  if (expectedCapsuleHash && !fileTxID) {
+    throw new Error(`${ErrInvalidParams().message}: fileTxID required when expectedCapsuleHash is provided`)
   }
 
   let tx: Transaction
   try {
     tx = Transaction.fromBinary(Array.from(spendingTx))
   } catch (err) {
-    throw new Error(`${ErrInvalidTx.message}: ${err}`)
+    throw new Error(`${ErrInvalidTx().message}: ${err}`)
   }
 
   // Look through all inputs for an HTLC spend.
@@ -166,7 +171,7 @@ export function parseHTLCPreimage(
     // Verify hash if expected hash provided.
     if (expectedCapsuleHash != null) {
       const h = computeCapsuleHash(fileTxID ?? new Uint8Array(0), preimage)
-      if (h == null || !uint8ArrayEqual(h, expectedCapsuleHash)) {
+      if (h == null || !timingSafeEqual(h, expectedCapsuleHash)) {
         continue // Hash mismatch - try next input.
       }
     }
@@ -174,7 +179,7 @@ export function parseHTLCPreimage(
     return preimage
   }
 
-  throw new Error(`${ErrInvalidPreimage.message}: no HTLC preimage found in transaction inputs`)
+  throw new Error(`${ErrInvalidPreimage().message}: no HTLC preimage found in transaction inputs`)
 }
 
 // ---------------------------------------------------------------------------
@@ -264,11 +269,3 @@ function base58Decode(str: string): Uint8Array | null {
   return result
 }
 
-/** Compares two Uint8Arrays for equality. */
-function uint8ArrayEqual(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.length !== b.length) return false
-  for (let i = 0; i < a.length; i++) {
-    if (a[i] !== b[i]) return false
-  }
-  return true
-}

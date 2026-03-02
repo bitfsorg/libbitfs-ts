@@ -19,7 +19,7 @@ import {
  */
 export async function followLink(store: NodeStore, linkNode: Node, maxDepth?: number): Promise<Node> {
   if (linkNode.type !== NodeType.Link) {
-    throw new MetanetError(`${ErrNotLink.message}: node type is ${linkNode.type}`, ErrNotLink.code)
+    throw new MetanetError(`${ErrNotLink().message}: node type is ${linkNode.type}`, ErrNotLink().code)
   }
 
   const depth = maxDepth != null && maxDepth > 0 ? maxDepth : MAX_LINK_DEPTH
@@ -33,19 +33,19 @@ export async function followLink(store: NodeStore, linkNode: Node, maxDepth?: nu
 
     if (current.linkType === LinkType.SoftRemote) {
       throw new MetanetError(
-        `${ErrRemoteLinkNotSupported.message}: target=${current.domain}`,
-        ErrRemoteLinkNotSupported.code,
+        `${ErrRemoteLinkNotSupported().message}: target=${current.domain}`,
+        ErrRemoteLinkNotSupported().code,
       )
     }
 
     // Soft link: look up target by P_node
     if (current.linkTarget.length === 0) {
-      throw new MetanetError(`${ErrNodeNotFound.message}: link has no target`, ErrNodeNotFound.code)
+      throw new MetanetError(`${ErrNodeNotFound().message}: link has no target`, ErrNodeNotFound().code)
     }
 
     const target = await store.getNodeByPubKey(current.linkTarget)
     if (target === null) {
-      throw new MetanetError(`${ErrNodeNotFound.message}: link target not found`, ErrNodeNotFound.code)
+      throw new MetanetError(`${ErrNodeNotFound().message}: link target not found`, ErrNodeNotFound().code)
     }
 
     current = target
@@ -53,7 +53,7 @@ export async function followLink(store: NodeStore, linkNode: Node, maxDepth?: nu
 
   // If still on a link after maxDepth iterations, the chain is too deep
   if (current.type === NodeType.Link) {
-    throw ErrLinkDepthExceeded
+    throw ErrLinkDepthExceeded()
   }
 
   return current
@@ -83,18 +83,18 @@ export async function followLinkCounted(
 
     if (current.linkType === LinkType.SoftRemote) {
       throw new MetanetError(
-        `${ErrRemoteLinkNotSupported.message}: target=${current.domain}`,
-        ErrRemoteLinkNotSupported.code,
+        `${ErrRemoteLinkNotSupported().message}: target=${current.domain}`,
+        ErrRemoteLinkNotSupported().code,
       )
     }
 
     if (current.linkTarget.length === 0) {
-      throw new MetanetError(`${ErrNodeNotFound.message}: link has no target`, ErrNodeNotFound.code)
+      throw new MetanetError(`${ErrNodeNotFound().message}: link has no target`, ErrNodeNotFound().code)
     }
 
     const target = await store.getNodeByPubKey(current.linkTarget)
     if (target === null) {
-      throw new MetanetError(`${ErrNodeNotFound.message}: link target not found`, ErrNodeNotFound.code)
+      throw new MetanetError(`${ErrNodeNotFound().message}: link target not found`, ErrNodeNotFound().code)
     }
 
     hops++
@@ -102,7 +102,7 @@ export async function followLinkCounted(
   }
 
   if (current.type === NodeType.Link) {
-    throw ErrLinkDepthExceeded
+    throw ErrLinkDepthExceeded()
   }
 
   return { node: current, hops }
@@ -162,8 +162,8 @@ export async function inheritPricePerKB(store: NodeStore, node: Node): Promise<b
   }
 
   throw new MetanetError(
-    `${ErrLinkDepthExceeded.message}: price inheritance exceeded max depth`,
-    ErrLinkDepthExceeded.code,
+    `${ErrLinkDepthExceeded().message}: price inheritance exceeded max depth`,
+    ErrLinkDepthExceeded().code,
   )
 }
 

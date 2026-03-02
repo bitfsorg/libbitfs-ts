@@ -118,7 +118,7 @@ describe('encrypt ciphertext format', () => {
 describe('decrypt error cases', () => {
   it('throws on null public key', async () => {
     await expect(encrypt(new Uint8Array([1]), null, null, Access.Free))
-      .rejects.toThrow(ErrNilPublicKey)
+      .rejects.toThrow(ErrNilPublicKey())
   })
 
   it('throws on wrong key hash', async () => {
@@ -134,7 +134,7 @@ describe('decrypt error cases', () => {
     const { priv, pub } = generateKeyPair()
     const keyHash = new Uint8Array(32)
     await expect(decrypt(new Uint8Array(10), priv, pub, keyHash, Access.Private))
-      .rejects.toThrow(ErrInvalidCiphertext)
+      .rejects.toThrow(ErrInvalidCiphertext())
   })
 
   it('throws on tampered ciphertext', async () => {
@@ -146,7 +146,7 @@ describe('decrypt error cases', () => {
     tampered[NONCE_LEN] ^= 0xff
 
     await expect(decrypt(tampered, priv, pub, enc.keyHash, Access.Private))
-      .rejects.toThrow(ErrDecryptionFailed)
+      .rejects.toThrow(ErrDecryptionFailed())
   })
 
   it('throws on wrong access mode', async () => {
@@ -210,19 +210,19 @@ describe('encryptMetadata/decryptMetadata', () => {
   it('throws on null private key', async () => {
     const pub = PrivateKey.fromRandom().toPublicKey()
     await expect(encryptMetadata(new Uint8Array([1]), null, pub))
-      .rejects.toThrow(ErrNilPrivateKey)
+      .rejects.toThrow(ErrNilPrivateKey())
   })
 
   it('throws on null public key', async () => {
     const priv = PrivateKey.fromRandom()
     await expect(encryptMetadata(new Uint8Array([1]), priv, null))
-      .rejects.toThrow(ErrNilPublicKey)
+      .rejects.toThrow(ErrNilPublicKey())
   })
 
   it('throws on too-short encPayload', async () => {
     const { priv, pub } = generateKeyPair()
     await expect(decryptMetadata(new Uint8Array(10), priv, pub))
-      .rejects.toThrow(ErrInvalidCiphertext)
+      .rejects.toThrow(ErrInvalidCiphertext())
   })
 
   it('round-trips empty TLV payload', async () => {

@@ -27,17 +27,17 @@ describe('compress/decompress round-trip', () => {
     { name: 'none', scheme: CompressNone },
     { name: 'lzw', scheme: CompressLZW },
     { name: 'gzip', scheme: CompressGZIP },
-  ])('round-trips with $name', ({ scheme }) => {
-    const compressed = compress(data, scheme)
-    const decompressed = decompress(compressed, scheme)
+  ])('round-trips with $name', async ({ scheme }) => {
+    const compressed = await compress(data, scheme)
+    const decompressed = await decompress(compressed, scheme)
     expect(decompressed).toEqual(data)
   })
 })
 
 describe('CompressNone identity', () => {
-  it('returns the same data unchanged', () => {
+  it('returns the same data unchanged', async () => {
     const data = new TextEncoder().encode('unchanged data')
-    const compressed = compress(data, CompressNone)
+    const compressed = await compress(data, CompressNone)
     expect(compressed).toBe(data) // same reference for CompressNone
   })
 })
@@ -47,91 +47,91 @@ describe('compress empty data', () => {
     { name: 'none', scheme: CompressNone },
     { name: 'lzw', scheme: CompressLZW },
     { name: 'gzip', scheme: CompressGZIP },
-  ])('round-trips empty with $name', ({ scheme }) => {
-    const compressed = compress(new Uint8Array(0), scheme)
-    const decompressed = decompress(compressed, scheme)
+  ])('round-trips empty with $name', async ({ scheme }) => {
+    const compressed = await compress(new Uint8Array(0), scheme)
+    const decompressed = await decompress(compressed, scheme)
     expect(decompressed.length).toBe(0)
   })
 })
 
 describe('GZIP produces smaller output', () => {
-  it('compresses repetitive data smaller than original', () => {
+  it('compresses repetitive data smaller than original', async () => {
     const data = repeat(new TextEncoder().encode('AAAA'), 1000)
-    const compressed = compress(data, CompressGZIP)
+    const compressed = await compress(data, CompressGZIP)
     expect(compressed.length).toBeLessThan(data.length)
   })
 })
 
 describe('LZW produces smaller output on repetitive data', () => {
-  it('compresses repetitive data', () => {
+  it('compresses repetitive data', async () => {
     const data = repeat(new TextEncoder().encode('ABABAB'), 500)
-    const compressed = compress(data, CompressLZW)
+    const compressed = await compress(data, CompressLZW)
     expect(compressed.length).toBeLessThan(data.length)
   })
 })
 
 describe('unsupported compression scheme', () => {
-  it('throws on compress with ZSTD', () => {
-    expect(() => compress(new Uint8Array([1, 2, 3]), CompressZSTD))
-      .toThrow(ErrUnsupportedCompression)
+  it('throws on compress with ZSTD', async () => {
+    await expect(compress(new Uint8Array([1, 2, 3]), CompressZSTD))
+      .rejects.toThrow(ErrUnsupportedCompression())
   })
 
-  it('throws on decompress with ZSTD', () => {
-    expect(() => decompress(new Uint8Array([1, 2, 3]), CompressZSTD))
-      .toThrow(ErrUnsupportedCompression)
+  it('throws on decompress with ZSTD', async () => {
+    await expect(decompress(new Uint8Array([1, 2, 3]), CompressZSTD))
+      .rejects.toThrow(ErrUnsupportedCompression())
   })
 
-  it('throws on unknown scheme 99', () => {
-    expect(() => compress(new Uint8Array([1, 2, 3]), 99))
-      .toThrow(ErrUnsupportedCompression)
+  it('throws on unknown scheme 99', async () => {
+    await expect(compress(new Uint8Array([1, 2, 3]), 99))
+      .rejects.toThrow(ErrUnsupportedCompression())
   })
 })
 
 describe('LZW various data patterns', () => {
-  it('handles single byte', () => {
+  it('handles single byte', async () => {
     const data = new Uint8Array([42])
-    const compressed = compress(data, CompressLZW)
-    const decompressed = decompress(compressed, CompressLZW)
+    const compressed = await compress(data, CompressLZW)
+    const decompressed = await decompress(compressed, CompressLZW)
     expect(decompressed).toEqual(data)
   })
 
-  it('handles all byte values 0-255', () => {
+  it('handles all byte values 0-255', async () => {
     const data = new Uint8Array(256)
     for (let i = 0; i < 256; i++) data[i] = i
-    const compressed = compress(data, CompressLZW)
-    const decompressed = decompress(compressed, CompressLZW)
+    const compressed = await compress(data, CompressLZW)
+    const decompressed = await decompress(compressed, CompressLZW)
     expect(decompressed).toEqual(data)
   })
 
-  it('handles data that triggers table reset (>4KB of diverse patterns)', () => {
+  it('handles data that triggers table reset (>4KB of diverse patterns)', async () => {
     // Large data with enough variety to fill the LZW table and trigger clear codes.
     const data = new Uint8Array(8192)
     for (let i = 0; i < data.length; i++) {
       data[i] = (i * 7 + 13) & 0xff
     }
-    const compressed = compress(data, CompressLZW)
-    const decompressed = decompress(compressed, CompressLZW)
+    const compressed = await compress(data, CompressLZW)
+    const decompressed = await decompress(compressed, CompressLZW)
     expect(decompressed).toEqual(data)
   })
 
-  it('handles highly repetitive data (aaaaaa...)', () => {
+  it('handles highly repetitive data (aaaaaa...)', async () => {
     const data = new Uint8Array(10000).fill(0x61)
-    const compressed = compress(data, CompressLZW)
-    const decompressed = decompress(compressed, CompressLZW)
+    const compressed = await compress(data, CompressLZW)
+    const decompressed = await decompress(compressed, CompressLZW)
     expect(decompressed).toEqual(data)
   })
 
-  it('handles two-byte repeating pattern', () => {
+  it('handles two-byte repeating pattern', async () => {
     const data = new Uint8Array(5000)
     for (let i = 0; i < data.length; i++) {
       data[i] = i % 2 === 0 ? 0xAA : 0xBB
     }
-    const compressed = compress(data, CompressLZW)
-    const decompressed = decompress(compressed, CompressLZW)
+    const compressed = await compress(data, CompressLZW)
+    const decompressed = await decompress(compressed, CompressLZW)
     expect(decompressed).toEqual(data)
   })
 
-  it('handles random-like data', () => {
+  it('handles random-like data', async () => {
     // Pseudo-random data (deterministic for reproducibility).
     const data = new Uint8Array(4096)
     let seed = 12345
@@ -139,8 +139,8 @@ describe('LZW various data patterns', () => {
       seed = (seed * 1103515245 + 12345) & 0x7fffffff
       data[i] = seed & 0xff
     }
-    const compressed = compress(data, CompressLZW)
-    const decompressed = decompress(compressed, CompressLZW)
+    const compressed = await compress(data, CompressLZW)
+    const decompressed = await decompress(compressed, CompressLZW)
     expect(decompressed).toEqual(data)
   })
 })

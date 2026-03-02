@@ -9,8 +9,8 @@ export const DEFAULT_CHUNK_SIZE = 1024 * 1024
  * The last chunk may be smaller than chunkSize.
  */
 export function splitIntoChunks(data: Uint8Array, chunkSize: number = DEFAULT_CHUNK_SIZE): Uint8Array[] {
-  if (chunkSize <= 0) {
-    throw ErrInvalidChunkSize
+  if (!Number.isFinite(chunkSize) || chunkSize <= 0) {
+    throw ErrInvalidChunkSize()
   }
   if (data.length === 0) {
     return []
@@ -59,11 +59,11 @@ export function recombineChunks(chunks: Uint8Array[], expectedHash: Uint8Array):
 
   const actualHash = new Uint8Array(Hash.sha256(combined))
   if (actualHash.length !== expectedHash.length) {
-    throw ErrRecombinationHashMismatch
+    throw ErrRecombinationHashMismatch()
   }
   for (let i = 0; i < actualHash.length; i++) {
     if (actualHash[i] !== expectedHash[i]) {
-      throw ErrRecombinationHashMismatch
+      throw ErrRecombinationHashMismatch()
     }
   }
   return combined

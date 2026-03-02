@@ -174,13 +174,13 @@ describe('decryptWithCapsule error cases', () => {
   it('throws on null buyer private key', async () => {
     await expect(
       decryptWithCapsule(new Uint8Array(28), new Uint8Array(32), new Uint8Array(32), null, PrivateKey.fromRandom().toPublicKey())
-    ).rejects.toThrow(ErrNilPrivateKey)
+    ).rejects.toThrow(ErrNilPrivateKey())
   })
 
   it('throws on null node public key', async () => {
     await expect(
       decryptWithCapsule(new Uint8Array(28), new Uint8Array(32), new Uint8Array(32), PrivateKey.fromRandom(), null)
-    ).rejects.toThrow(ErrNilPublicKey)
+    ).rejects.toThrow(ErrNilPublicKey())
   })
 
   it('throws on empty capsule', async () => {

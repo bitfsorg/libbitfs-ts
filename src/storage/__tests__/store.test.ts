@@ -48,7 +48,7 @@ describe('MemoryStore', () => {
 
     it('rejects empty content', async () => {
       const keyHash = makeKeyHash(0x01)
-      await expect(store.put(keyHash, new Uint8Array(0))).rejects.toThrow(ErrEmptyContent)
+      await expect(store.put(keyHash, new Uint8Array(0))).rejects.toThrow(ErrEmptyContent())
     })
 
     it('rejects null key hash', async () => {
@@ -78,7 +78,7 @@ describe('MemoryStore', () => {
 
     it('throws ErrNotFound for missing key', async () => {
       const keyHash = makeKeyHash(0xFF)
-      await expect(store.get(keyHash)).rejects.toThrow(ErrNotFound)
+      await expect(store.get(keyHash)).rejects.toThrow(ErrNotFound())
     })
 
     it('rejects invalid key hash', async () => {
@@ -109,14 +109,14 @@ describe('MemoryStore', () => {
 
     it('throws ErrNotFound for missing key', async () => {
       const keyHash = makeKeyHash(0xFF)
-      await expect(store.delete(keyHash)).rejects.toThrow(ErrNotFound)
+      await expect(store.delete(keyHash)).rejects.toThrow(ErrNotFound())
     })
 
     it('double delete throws ErrNotFound', async () => {
       const keyHash = makeKeyHash(0x01)
       await store.put(keyHash, new Uint8Array([1]))
       await store.delete(keyHash)
-      await expect(store.delete(keyHash)).rejects.toThrow(ErrNotFound)
+      await expect(store.delete(keyHash)).rejects.toThrow(ErrNotFound())
     })
   })
 
@@ -130,7 +130,7 @@ describe('MemoryStore', () => {
 
     it('throws ErrNotFound for missing key', async () => {
       const keyHash = makeKeyHash(0xFF)
-      await expect(store.size(keyHash)).rejects.toThrow(ErrNotFound)
+      await expect(store.size(keyHash)).rejects.toThrow(ErrNotFound())
     })
   })
 
@@ -210,7 +210,7 @@ describe('FileStore', () => {
     })
 
     it('rejects empty base dir', async () => {
-      await expect(FileStore.create('')).rejects.toThrow(ErrInvalidBaseDir)
+      await expect(FileStore.create('')).rejects.toThrow(ErrInvalidBaseDir())
     })
   })
 
@@ -263,7 +263,7 @@ describe('FileStore', () => {
     it('rejects empty content', async () => {
       const store = await createTempStore()
       const keyHash = makeKeyHash(0x01)
-      await expect(store.put(keyHash, new Uint8Array(0))).rejects.toThrow(ErrEmptyContent)
+      await expect(store.put(keyHash, new Uint8Array(0))).rejects.toThrow(ErrEmptyContent())
     })
 
     it('overwrites existing content', async () => {
@@ -303,7 +303,7 @@ describe('FileStore', () => {
     it('throws ErrNotFound for missing key', async () => {
       const store = await createTempStore()
       const keyHash = makeKeyHash(0xFF)
-      await expect(store.get(keyHash)).rejects.toThrow(ErrNotFound)
+      await expect(store.get(keyHash)).rejects.toThrow(ErrNotFound())
     })
 
     it('rejects invalid key hash', async () => {
@@ -349,7 +349,7 @@ describe('FileStore', () => {
     it('throws ErrNotFound for missing key', async () => {
       const store = await createTempStore()
       const keyHash = makeKeyHash(0xFF)
-      await expect(store.delete(keyHash)).rejects.toThrow(ErrNotFound)
+      await expect(store.delete(keyHash)).rejects.toThrow(ErrNotFound())
     })
 
     it('double delete throws ErrNotFound', async () => {
@@ -357,7 +357,7 @@ describe('FileStore', () => {
       const keyHash = makeKeyHash(0x01)
       await store.put(keyHash, new Uint8Array([1]))
       await store.delete(keyHash)
-      await expect(store.delete(keyHash)).rejects.toThrow(ErrNotFound)
+      await expect(store.delete(keyHash)).rejects.toThrow(ErrNotFound())
     })
 
     it('get after delete throws ErrNotFound', async () => {
@@ -365,7 +365,7 @@ describe('FileStore', () => {
       const keyHash = makeKeyHash(0x01)
       await store.put(keyHash, new Uint8Array([1]))
       await store.delete(keyHash)
-      await expect(store.get(keyHash)).rejects.toThrow(ErrNotFound)
+      await expect(store.get(keyHash)).rejects.toThrow(ErrNotFound())
     })
   })
 
@@ -381,7 +381,7 @@ describe('FileStore', () => {
     it('throws ErrNotFound for missing key', async () => {
       const store = await createTempStore()
       const keyHash = makeKeyHash(0xFF)
-      await expect(store.size(keyHash)).rejects.toThrow(ErrNotFound)
+      await expect(store.size(keyHash)).rejects.toThrow(ErrNotFound())
     })
 
     it('reflects overwrite', async () => {

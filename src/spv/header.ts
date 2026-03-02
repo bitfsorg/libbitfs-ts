@@ -171,10 +171,8 @@ export function cumulativeWork(headers: BlockHeader[]): bigint {
  * Throws SpvError (ERR_INSUFFICIENT_POW) if the hash exceeds the target.
  */
 export function verifyPoW(h: BlockHeader): void {
-  let hash = h.hash
-  if (!hash || hash.length === 0) {
-    hash = computeHeaderHash(h)
-  }
+  // Always recompute hash from header bytes (defense-in-depth: never trust pre-supplied h.hash)
+  const hash = computeHeaderHash(h)
   const target = compactToTarget(h.bits)
 
   // Compare hash vs target byte-by-byte in big-endian order (MSB first).

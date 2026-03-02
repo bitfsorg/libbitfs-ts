@@ -1,4 +1,3 @@
-import { gzipSync, gunzipSync } from 'node:zlib'
 import { ErrUnsupportedCompression, ErrDecompressedTooLarge } from './errors.js'
 
 /** CompressNone indicates no compression. */
@@ -16,51 +15,86 @@ export const MAX_DECOMPRESSED_SIZE = 256 * 1024 * 1024
 /**
  * Compress compresses data using the specified scheme.
  */
-export function compress(data: Uint8Array, scheme: number): Uint8Array {
+export async function compress(data: Uint8Array, scheme: number): Promise<Uint8Array> {
   switch (scheme) {
     case CompressNone:
       return data
     case CompressLZW:
       return compressLZW(data)
     case CompressGZIP:
-      return compressGZIP(data)
+      return gzipCompress(data)
     case CompressZSTD:
-      throw ErrUnsupportedCompression
+      throw ErrUnsupportedCompression()
     default:
-      throw ErrUnsupportedCompression
+      throw ErrUnsupportedCompression()
   }
 }
 
 /**
  * Decompress decompresses data using the specified scheme.
  */
-export function decompress(data: Uint8Array, scheme: number): Uint8Array {
+export async function decompress(data: Uint8Array, scheme: number): Promise<Uint8Array> {
   switch (scheme) {
     case CompressNone:
       return data
     case CompressLZW:
       return decompressLZW(data)
     case CompressGZIP:
-      return decompressGZIP(data)
+      return gzipDecompress(data)
     case CompressZSTD:
-      throw ErrUnsupportedCompression
+      throw ErrUnsupportedCompression()
     default:
-      throw ErrUnsupportedCompression
+      throw ErrUnsupportedCompression()
   }
 }
 
 // ---------------------------------------------------------------------------
-// GZIP
+// GZIP — Uses Web Compression API (works in browsers and Node.js 18+)
 // ---------------------------------------------------------------------------
 
-function compressGZIP(data: Uint8Array): Uint8Array {
-  return new Uint8Array(gzipSync(data))
+async function gzipCompress(data: Uint8Array): Promise<Uint8Array> {
+  const cs = new CompressionStream('gzip')
+  const writer = cs.writable.getWriter()
+  void writer.write(new Uint8Array(data))
+  void writer.close()
+  const chunks: Uint8Array[] = []
+  const reader = cs.readable.getReader()
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    chunks.push(value)
+  }
+  const totalLength = chunks.reduce((acc, c) => acc + c.length, 0)
+  const result = new Uint8Array(totalLength)
+  let offset = 0
+  for (const chunk of chunks) {
+    result.set(chunk, offset)
+    offset += chunk.length
+  }
+  return result
 }
 
-function decompressGZIP(data: Uint8Array): Uint8Array {
-  const result = new Uint8Array(gunzipSync(data))
-  if (result.length > MAX_DECOMPRESSED_SIZE) {
-    throw ErrDecompressedTooLarge
+async function gzipDecompress(data: Uint8Array): Promise<Uint8Array> {
+  const ds = new DecompressionStream('gzip')
+  const writer = ds.writable.getWriter()
+  void writer.write(new Uint8Array(data))
+  void writer.close()
+  const chunks: Uint8Array[] = []
+  const reader = ds.readable.getReader()
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    chunks.push(value)
+  }
+  const totalLength = chunks.reduce((acc, c) => acc + c.length, 0)
+  if (totalLength > MAX_DECOMPRESSED_SIZE) {
+    throw ErrDecompressedTooLarge()
+  }
+  const result = new Uint8Array(totalLength)
+  let offset = 0
+  for (const chunk of chunks) {
+    result.set(chunk, offset)
+    offset += chunk.length
   }
   return result
 }
@@ -210,7 +244,7 @@ function decompressLZW(data: Uint8Array): Uint8Array {
 
   while (true) {
     if (output.length > MAX_DECOMPRESSED_SIZE) {
-      throw ErrDecompressedTooLarge
+      throw ErrDecompressedTooLarge()
     }
 
     const code = reader.readBits(width)

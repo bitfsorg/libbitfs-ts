@@ -80,13 +80,13 @@ describe('distributeRevenue', () => {
       { address: makeAddr(0xaa), share: 0n },
     ]
     expect(() => distributeRevenue(100n, entries, 0n)).toThrow(
-      ErrZeroTotalShares.message,
+      ErrZeroTotalShares().message,
     )
   })
 
   it('throws on empty entries', () => {
     expect(() => distributeRevenue(100n, [], 10000n)).toThrow(
-      ErrNoEntries.message,
+      ErrNoEntries().message,
     )
   })
 

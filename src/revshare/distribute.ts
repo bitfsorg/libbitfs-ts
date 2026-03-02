@@ -26,10 +26,10 @@ export function distributeRevenue(
   totalShares: bigint,
 ): Distribution[] {
   if (entries.length === 0) {
-    throw new RevShareError(ErrNoEntries.message, ErrNoEntries.code)
+    throw new RevShareError(ErrNoEntries().message, ErrNoEntries().code)
   }
   if (totalShares === 0n) {
-    throw new RevShareError(ErrZeroTotalShares.message, ErrZeroTotalShares.code)
+    throw new RevShareError(ErrZeroTotalShares().message, ErrZeroTotalShares().code)
   }
 
   // Validate that sum of entry shares equals totalShares.
@@ -38,15 +38,15 @@ export function distributeRevenue(
     shareSum += entry.share
     if (shareSum > MAX_U64) {
       throw new RevShareError(
-        `${ErrOverflow.message}: share sum exceeds uint64`,
-        ErrOverflow.code,
+        `${ErrOverflow().message}: share sum exceeds uint64`,
+        ErrOverflow().code,
       )
     }
   }
   if (shareSum !== totalShares) {
     throw new RevShareError(
-      `${ErrShareSumMismatch.message}: sum ${shareSum} != totalShares ${totalShares}`,
-      ErrShareSumMismatch.code,
+      `${ErrShareSumMismatch().message}: sum ${shareSum} != totalShares ${totalShares}`,
+      ErrShareSumMismatch().code,
     )
   }
 
@@ -67,8 +67,8 @@ export function distributeRevenue(
       // Last entry gets remainder.
       if (distributed > totalPayment) {
         throw new RevShareError(
-          `${ErrOverflow.message}: distributed ${distributed} exceeds total payment ${totalPayment}`,
-          ErrOverflow.code,
+          `${ErrOverflow().message}: distributed ${distributed} exceeds total payment ${totalPayment}`,
+          ErrOverflow().code,
         )
       }
       distributions[i] = {
@@ -101,8 +101,8 @@ export function validateShareConservation(
   const outputTotal = safeSum(outputs)
   if (inputTotal !== outputTotal) {
     throw new RevShareError(
-      `${ErrShareConservationViolation.message}: input=${inputTotal} output=${outputTotal}`,
-      ErrShareConservationViolation.code,
+      `${ErrShareConservationViolation().message}: input=${inputTotal} output=${outputTotal}`,
+      ErrShareConservationViolation().code,
     )
   }
 }
@@ -116,8 +116,8 @@ function safeSum(items: ShareData[]): bigint {
     total += item.amount
     if (total > MAX_U64) {
       throw new RevShareError(
-        `${ErrOverflow.message}: sum overflow at amount ${item.amount}`,
-        ErrOverflow.code,
+        `${ErrOverflow().message}: sum overflow at amount ${item.amount}`,
+        ErrOverflow().code,
       )
     }
   }

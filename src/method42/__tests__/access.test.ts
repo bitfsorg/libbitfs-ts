@@ -67,14 +67,14 @@ describe('effectivePrivateKey', () => {
   })
 
   it('throws ErrNilPrivateKey for Access.Private with null key', () => {
-    expect(() => effectivePrivateKey(Access.Private, null)).toThrow(ErrNilPrivateKey)
+    expect(() => effectivePrivateKey(Access.Private, null)).toThrow(ErrNilPrivateKey())
   })
 
   it('throws ErrNilPrivateKey for Access.Paid with null key', () => {
-    expect(() => effectivePrivateKey(Access.Paid, null)).toThrow(ErrNilPrivateKey)
+    expect(() => effectivePrivateKey(Access.Paid, null)).toThrow(ErrNilPrivateKey())
   })
 
   it('throws ErrInvalidAccess for unknown access mode', () => {
-    expect(() => effectivePrivateKey(99 as Access, null)).toThrow(ErrInvalidAccess)
+    expect(() => effectivePrivateKey(99 as Access, null)).toThrow(ErrInvalidAccess())
   })
 })
