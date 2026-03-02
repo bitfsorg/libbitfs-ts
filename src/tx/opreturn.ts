@@ -6,6 +6,7 @@ import {
   InvalidOPReturnError,
   NotMetanetTxError,
 } from './errors.js'
+import { timingSafeEqual } from '../util.js'
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -59,7 +60,7 @@ export function buildOPReturnData(
     throw new InvalidParentTxIDError(parentTxID.length)
   }
 
-  const pNodeBytes = Uint8Array.from(pNode.toDER() as number[])
+  const pNodeBytes = Uint8Array.from(pNode.toDER())
   if (pNodeBytes.length !== COMPRESSED_PUB_KEY_LEN) {
     throw new NilParamError(`invalid compressed public key length: ${pNodeBytes.length}`)
   }
@@ -89,7 +90,7 @@ export function parseOPReturnData(pushes: Uint8Array[]): {
   }
 
   // Verify MetaFlag
-  if (!uint8ArrayEquals(pushes[0], META_FLAG)) {
+  if (!timingSafeEqual(pushes[0], META_FLAG)) {
     throw new NotMetanetTxError()
   }
 
@@ -156,15 +157,3 @@ export function estimateTxSize(
   return base + inputs + outputs + opReturn
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/** Compare two Uint8Arrays for equality. */
-function uint8ArrayEquals(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.length !== b.length) return false
-  for (let i = 0; i < a.length; i++) {
-    if (a[i] !== b[i]) return false
-  }
-  return true
-}

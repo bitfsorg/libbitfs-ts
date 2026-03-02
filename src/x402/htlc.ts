@@ -31,6 +31,7 @@ import {
   ErrInsufficientPayment,
 } from './errors.js'
 import { computeCapsuleHash } from '../method42/capsule.js'
+import { timingSafeEqual, toHex } from '../util.js'
 
 // ---------------------------------------------------------------------------
 // HTLC script building
@@ -53,47 +54,47 @@ import { computeCapsuleHash } from '../method42/capsule.js'
  */
 export function buildHTLC(params: HTLCParams): Uint8Array {
   if (params == null) {
-    throw new Error(`${ErrHTLCBuildFailed.message}: nil params`)
+    throw new Error(`${ErrHTLCBuildFailed().message}: nil params`)
   }
   if (params.buyerPubKey.length !== COMPRESSED_PUB_KEY_LEN) {
     throw new Error(
-      `${ErrHTLCBuildFailed.message}: buyer pubkey must be ${COMPRESSED_PUB_KEY_LEN} bytes, got ${params.buyerPubKey.length}`,
+      `${ErrHTLCBuildFailed().message}: buyer pubkey must be ${COMPRESSED_PUB_KEY_LEN} bytes, got ${params.buyerPubKey.length}`,
     )
   }
   if (params.sellerPubKey.length !== COMPRESSED_PUB_KEY_LEN) {
     throw new Error(
-      `${ErrHTLCBuildFailed.message}: seller pubkey must be ${COMPRESSED_PUB_KEY_LEN} bytes, got ${params.sellerPubKey.length}`,
+      `${ErrHTLCBuildFailed().message}: seller pubkey must be ${COMPRESSED_PUB_KEY_LEN} bytes, got ${params.sellerPubKey.length}`,
     )
   }
   if (params.sellerPubKeyHash.length !== PUB_KEY_HASH_LEN) {
     throw new Error(
-      `${ErrHTLCBuildFailed.message}: seller address must be ${PUB_KEY_HASH_LEN} bytes, got ${params.sellerPubKeyHash.length}`,
+      `${ErrHTLCBuildFailed().message}: seller address must be ${PUB_KEY_HASH_LEN} bytes, got ${params.sellerPubKeyHash.length}`,
     )
   }
   if (params.capsuleHash.length !== CAPSULE_HASH_LEN) {
     throw new Error(
-      `${ErrHTLCBuildFailed.message}: capsule hash must be ${CAPSULE_HASH_LEN} bytes, got ${params.capsuleHash.length}`,
+      `${ErrHTLCBuildFailed().message}: capsule hash must be ${CAPSULE_HASH_LEN} bytes, got ${params.capsuleHash.length}`,
     )
   }
   if (params.amount <= 0n) {
-    throw new Error(`${ErrHTLCBuildFailed.message}: amount must be > 0`)
+    throw new Error(`${ErrHTLCBuildFailed().message}: amount must be > 0`)
   }
   if (params.timeoutBlocks <= 0) {
-    throw new Error(`${ErrHTLCBuildFailed.message}: timeout must be > 0`)
+    throw new Error(`${ErrHTLCBuildFailed().message}: timeout must be > 0`)
   }
   if (params.timeoutBlocks < MIN_HTLC_TIMEOUT) {
     throw new Error(
-      `${ErrHTLCBuildFailed.message}: timeout ${params.timeoutBlocks} below minimum ${MIN_HTLC_TIMEOUT} blocks`,
+      `${ErrHTLCBuildFailed().message}: timeout ${params.timeoutBlocks} below minimum ${MIN_HTLC_TIMEOUT} blocks`,
     )
   }
   if (params.timeoutBlocks > MAX_HTLC_TIMEOUT) {
     throw new Error(
-      `${ErrHTLCBuildFailed.message}: timeout ${params.timeoutBlocks} exceeds maximum ${MAX_HTLC_TIMEOUT} blocks`,
+      `${ErrHTLCBuildFailed().message}: timeout ${params.timeoutBlocks} exceeds maximum ${MAX_HTLC_TIMEOUT} blocks`,
     )
   }
   if (params.invoiceID != null && params.invoiceID.length > 0 && params.invoiceID.length !== INVOICE_ID_LEN) {
     throw new Error(
-      `${ErrHTLCBuildFailed.message}: invoice ID must be ${INVOICE_ID_LEN} bytes, got ${params.invoiceID.length}`,
+      `${ErrHTLCBuildFailed().message}: invoice ID must be ${INVOICE_ID_LEN} bytes, got ${params.invoiceID.length}`,
     )
   }
 
@@ -200,28 +201,28 @@ export function extractInvoiceIDFromHTLC(scriptBytes: Uint8Array): Uint8Array | 
  */
 export async function buildHTLCFundingTx(params: HTLCFundingParams): Promise<HTLCFundingResult> {
   if (params == null) {
-    throw new Error(`${ErrInvalidParams.message}: nil params`)
+    throw new Error(`${ErrInvalidParams().message}: nil params`)
   }
   if (params.buyerPrivKey == null) {
-    throw new Error(`${ErrInvalidParams.message}: nil buyer private key`)
+    throw new Error(`${ErrInvalidParams().message}: nil buyer private key`)
   }
   if (params.utxos.length === 0) {
-    throw new Error(`${ErrInvalidParams.message}: no UTXOs provided`)
+    throw new Error(`${ErrInvalidParams().message}: no UTXOs provided`)
   }
   if (params.sellerPubKeyHash.length !== PUB_KEY_HASH_LEN) {
-    throw new Error(`${ErrInvalidParams.message}: seller address must be ${PUB_KEY_HASH_LEN} bytes`)
+    throw new Error(`${ErrInvalidParams().message}: seller address must be ${PUB_KEY_HASH_LEN} bytes`)
   }
   if (params.sellerPubKey.length !== COMPRESSED_PUB_KEY_LEN) {
-    throw new Error(`${ErrInvalidParams.message}: seller pubkey must be ${COMPRESSED_PUB_KEY_LEN} bytes`)
+    throw new Error(`${ErrInvalidParams().message}: seller pubkey must be ${COMPRESSED_PUB_KEY_LEN} bytes`)
   }
   if (params.capsuleHash.length !== CAPSULE_HASH_LEN) {
-    throw new Error(`${ErrInvalidParams.message}: capsule hash must be ${CAPSULE_HASH_LEN} bytes`)
+    throw new Error(`${ErrInvalidParams().message}: capsule hash must be ${CAPSULE_HASH_LEN} bytes`)
   }
   if (params.changeAddr.length !== PUB_KEY_HASH_LEN) {
-    throw new Error(`${ErrInvalidParams.message}: change address must be ${PUB_KEY_HASH_LEN} bytes`)
+    throw new Error(`${ErrInvalidParams().message}: change address must be ${PUB_KEY_HASH_LEN} bytes`)
   }
   if (params.amount <= 0n) {
-    throw new Error(`${ErrInvalidParams.message}: amount must be greater than zero`)
+    throw new Error(`${ErrInvalidParams().message}: amount must be greater than zero`)
   }
 
   const htlcAmount = params.amount
@@ -231,16 +232,16 @@ export async function buildHTLCFundingTx(params: HTLCFundingParams): Promise<HTL
     timeout = DEFAULT_HTLC_TIMEOUT
   }
   if (timeout < MIN_HTLC_TIMEOUT) {
-    throw new Error(`${ErrInvalidParams.message}: timeout ${timeout} below minimum ${MIN_HTLC_TIMEOUT} blocks`)
+    throw new Error(`${ErrInvalidParams().message}: timeout ${timeout} below minimum ${MIN_HTLC_TIMEOUT} blocks`)
   }
   if (timeout > MAX_HTLC_TIMEOUT) {
-    throw new Error(`${ErrInvalidParams.message}: timeout ${timeout} exceeds maximum ${MAX_HTLC_TIMEOUT} blocks`)
+    throw new Error(`${ErrInvalidParams().message}: timeout ${timeout} exceeds maximum ${MAX_HTLC_TIMEOUT} blocks`)
   }
 
   const feeRate = params.feeRate > 0 ? params.feeRate : DEFAULT_HTLC_FEE_RATE
 
   // Build the HTLC locking script.
-  const buyerPubKey = params.buyerPrivKey.toPublicKey().encode(true) as number[]
+  const buyerPubKey = params.buyerPrivKey.toPublicKey().toDER()
   const htlcScript = buildHTLC({
     buyerPubKey: Uint8Array.from(buyerPubKey),
     sellerPubKey: params.sellerPubKey,
@@ -266,7 +267,7 @@ export async function buildHTLCFundingTx(params: HTLCFundingParams): Promise<HTL
   const totalNeeded = htlcAmount + estFee
   if (totalInput < totalNeeded) {
     throw new Error(
-      `${ErrInsufficientPayment.message}: have ${totalInput} satoshis, need ${totalNeeded} (amount=${htlcAmount} + fee~${estFee})`,
+      `${ErrInsufficientPayment().message}: have ${totalInput} satoshis, need ${totalNeeded} (amount=${htlcAmount} + fee~${estFee})`,
     )
   }
 
@@ -276,7 +277,7 @@ export async function buildHTLCFundingTx(params: HTLCFundingParams): Promise<HTL
   // Add inputs.
   for (const utxo of params.utxos) {
     tx.addInput({
-      sourceTXID: hexFromBytes(utxo.txID),
+      sourceTXID: toHex(utxo.txID),
       sourceOutputIndex: utxo.vout,
       sequence: 0xffffffff,
     })
@@ -349,29 +350,29 @@ export async function buildHTLCFundingTx(params: HTLCFundingParams): Promise<HTL
  */
 export async function buildSellerClaimTx(params: SellerClaimParams): Promise<Uint8Array> {
   if (params == null) {
-    throw new Error(`${ErrInvalidParams.message}: nil params`)
+    throw new Error(`${ErrInvalidParams().message}: nil params`)
   }
   if (params.sellerPrivKey == null) {
-    throw new Error(`${ErrInvalidParams.message}: nil seller private key`)
+    throw new Error(`${ErrInvalidParams().message}: nil seller private key`)
   }
   if (params.fundingTxID.length !== 32) {
-    throw new Error(`${ErrInvalidParams.message}: funding txid must be 32 bytes`)
+    throw new Error(`${ErrInvalidParams().message}: funding txid must be 32 bytes`)
   }
   if (params.htlcScript.length === 0) {
-    throw new Error(`${ErrInvalidParams.message}: empty HTLC script`)
+    throw new Error(`${ErrInvalidParams().message}: empty HTLC script`)
   }
   if (params.capsule.length === 0) {
-    throw new Error(`${ErrInvalidParams.message}: empty capsule`)
+    throw new Error(`${ErrInvalidParams().message}: empty capsule`)
   }
   if (params.outputAddr.length !== PUB_KEY_HASH_LEN) {
-    throw new Error(`${ErrInvalidParams.message}: output address must be ${PUB_KEY_HASH_LEN} bytes`)
+    throw new Error(`${ErrInvalidParams().message}: output address must be ${PUB_KEY_HASH_LEN} bytes`)
   }
 
   // Verify capsule matches the hash embedded in the HTLC script.
   const capsuleHashFromScript = extractCapsuleHashFromHTLC(params.htlcScript)
   const computedHash = computeCapsuleHash(params.fileTxID, params.capsule)
-  if (computedHash == null || !uint8ArrayEqual(computedHash, capsuleHashFromScript)) {
-    throw new Error(`${ErrInvalidParams.message}: capsule hash mismatch`)
+  if (computedHash == null || !timingSafeEqual(computedHash, capsuleHashFromScript)) {
+    throw new Error(`${ErrInvalidParams().message}: capsule hash mismatch`)
   }
 
   const feeRate = params.feeRate > 0 ? params.feeRate : DEFAULT_HTLC_FEE_RATE
@@ -382,12 +383,12 @@ export async function buildSellerClaimTx(params: SellerClaimParams): Promise<Uin
 
   if (params.fundingAmount <= estFee) {
     throw new Error(
-      `${ErrInsufficientPayment.message}: funding amount ${params.fundingAmount} too small for fee ${estFee}`,
+      `${ErrInsufficientPayment().message}: funding amount ${params.fundingAmount} too small for fee ${estFee}`,
     )
   }
 
   const outputAmount = params.fundingAmount - estFee
-  const fundingTxIDHex = hexFromBytes(params.fundingTxID)
+  const fundingTxIDHex = toHex(params.fundingTxID)
 
   const tx = new Transaction()
 
@@ -441,8 +442,8 @@ export async function buildSellerClaimTx(params: SellerClaimParams): Promise<Uin
   const sig = params.sellerPrivKey.sign(sigHash)
 
   // Build unlocking script: <sig+flag> <seller_pubkey> <capsule> OP_TRUE
-  const sigBytes: number[] = [...(sig.toDER() as number[]), scope & 0xff]
-  const sellerPubKey: number[] = params.sellerPrivKey.toPublicKey().encode(true) as unknown as number[]
+  const sigBytes: number[] = [...sig.toDER(), scope & 0xff]
+  const sellerPubKey = params.sellerPrivKey.toPublicKey().toDER()
 
   const unlockScript = new Script()
   unlockScript.writeBin(sigBytes)
@@ -472,18 +473,3 @@ function htlcInvoiceIDOffset(chunks: Array<{ op: number; data?: number[] }>): nu
   return 0
 }
 
-/** Convert Uint8Array to hex string. */
-function hexFromBytes(bytes: Uint8Array): string {
-  return Array.from(bytes)
-    .map(b => b.toString(16).padStart(2, '0'))
-    .join('')
-}
-
-/** Compares two Uint8Arrays for equality. */
-function uint8ArrayEqual(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.length !== b.length) return false
-  for (let i = 0; i < a.length; i++) {
-    if (a[i] !== b[i]) return false
-  }
-  return true
-}
