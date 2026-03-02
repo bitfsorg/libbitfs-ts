@@ -3,7 +3,7 @@
 // --- Enums ---
 
 /** NodeType represents the Metanet node types. */
-export const enum NodeType {
+export enum NodeType {
   File = 0,
   Dir = 1,
   Link = 2,
@@ -11,14 +11,14 @@ export const enum NodeType {
 }
 
 /** OpType represents the filesystem operation type. */
-export const enum OpType {
+export enum OpType {
   Create = 0,
   Update = 1,
   Delete = 2,
 }
 
 /** LinkType represents soft link subtypes. */
-export const enum LinkType {
+export enum LinkType {
   /** Points to a P_node within the same vault. */
   Soft = 0,
   /** Points to domain/path across vaults. */
@@ -26,7 +26,7 @@ export const enum LinkType {
 }
 
 /** AccessLevel represents the access control level. */
-export const enum AccessLevel {
+export enum AccessLevel {
   /** Private: encrypted, owner-only. */
   Private = 0,
   /** Free: publicly readable at no cost. */
@@ -36,7 +36,7 @@ export const enum AccessLevel {
 }
 
 /** Compression scheme constants. */
-export const enum CompressionScheme {
+export enum CompressionScheme {
   None = 0,
   LZW = 1,
   GZIP = 2,
@@ -44,7 +44,7 @@ export const enum CompressionScheme {
 }
 
 /** ISOStatus represents the state of an Initial Share Offering. */
-export const enum ISOStatus {
+export enum ISOStatus {
   None = 0,
   Open = 1,
   Partial = 2,
@@ -52,7 +52,7 @@ export const enum ISOStatus {
 }
 
 /** CLTVResult indicates whether content access is allowed based on block height. */
-export const enum CLTVResult {
+export enum CLTVResult {
   Allowed = 0,
   Denied = 1,
 }

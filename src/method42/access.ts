@@ -2,7 +2,7 @@ import { PrivateKey } from '@bsv/sdk'
 import { ErrNilPrivateKey, ErrInvalidAccess } from './errors.js'
 
 /** Access represents the three access control modes for encrypted content. */
-export const enum Access {
+export enum Access {
   /** Only the owner can decrypt (ECDH with BIP32 D_node). */
   Private = 0,
   /** Anyone can decrypt. Uses D_node = scalar 1. */
@@ -41,9 +41,9 @@ export function effectivePrivateKey(access: Access, nodePrivateKey: PrivateKey |
       return freePrivateKey()
     case Access.Private:
     case Access.Paid:
-      if (!nodePrivateKey) throw ErrNilPrivateKey
+      if (!nodePrivateKey) throw ErrNilPrivateKey()
       return nodePrivateKey
     default:
-      throw ErrInvalidAccess
+      throw ErrInvalidAccess()
   }
 }

@@ -19,7 +19,7 @@ export interface UTXO {
 /**
  * BatchOpType identifies the kind of operation in a batch.
  */
-export const enum BatchOpType {
+export enum BatchOpType {
   /** Create a new child node (OP_RETURN + P2PKH refresh). */
   Create = 0,
   /** Update existing node (OP_RETURN + P2PKH refresh). */
