@@ -1,16 +1,17 @@
-import { PrivateKey, PublicKey, Hash } from '@bsv/sdk'
-import { importAESKey, aesGcmDecrypt } from '../subtle.js'
+import { PrivateKey, PublicKey } from '@bsv/sdk'
+import { sha256 } from '@noble/hashes/sha256'
 import { ecdh } from './ecdh.js'
 import { computeKeyHash, deriveAESKey, deriveBuyerMaskWithNonce, AES_KEY_LEN } from './kdf.js'
 import {
   ErrNilPrivateKey,
   ErrNilPublicKey,
   ErrKeyHashMismatch,
-  ErrDecryptionFailed,
   ErrInvalidCiphertext,
 } from './errors.js'
-import { NONCE_LEN, GCM_TAG_LEN, MIN_CIPHERTEXT_LEN } from './encrypt.js'
+import { MIN_CIPHERTEXT_LEN } from './encrypt.js'
 import type { DecryptResult } from './encrypt.js'
+import { timingSafeEqual } from '../util.js'
+import { aesGCMDecrypt } from './aes.js'
 
 /**
  * Computes the XOR-masked capsule for a buyer (legacy deterministic version).
@@ -68,7 +69,15 @@ export function computeCapsuleWithNonce(
   const buyerMask = deriveBuyerMaskWithNonce(sharedBuyer, keyHash, nonce)
 
   // 5. capsule = xorBytes(aesKey, buyerMask)
-  return xorBytes(aesKey, buyerMask)
+  const capsule = xorBytes(aesKey, buyerMask)
+
+  // S-04: Zero intermediate key material
+  sharedNode.fill(0)
+  aesKey.fill(0)
+  sharedBuyer.fill(0)
+  buyerMask.fill(0)
+
+  return capsule
 }
 
 /**
@@ -83,7 +92,9 @@ export function computeCapsuleHash(fileTxID: Uint8Array, capsule: Uint8Array): U
   const combined = new Uint8Array(fileTxID.length + capsule.length)
   combined.set(fileTxID)
   combined.set(capsule, fileTxID.length)
-  return new Uint8Array(Hash.sha256(Array.from(combined)))
+  // S-09: Use @noble/hashes sha256 directly with Uint8Array
+  // instead of Hash.sha256(Array.from(...)) which creates an unnecessary memory copy
+  return sha256(combined)
 }
 
 /**
@@ -120,8 +131,8 @@ export async function decryptWithCapsuleNonce(
   nodePublicKey: PublicKey | null,
   nonce: Uint8Array | null,
 ): Promise<DecryptResult> {
-  if (!buyerPrivateKey) throw ErrNilPrivateKey
-  if (!nodePublicKey) throw ErrNilPublicKey
+  if (!buyerPrivateKey) throw ErrNilPrivateKey()
+  if (!nodePublicKey) throw ErrNilPublicKey()
   if (capsule.length === 0) {
     throw new Error('method42: capsule is empty')
   }
@@ -129,10 +140,10 @@ export async function decryptWithCapsuleNonce(
     throw new Error(`method42: capsule must be ${AES_KEY_LEN} bytes, got ${capsule.length}`)
   }
   if (keyHash.length !== 32) {
-    throw ErrKeyHashMismatch
+    throw ErrKeyHashMismatch()
   }
   if (ciphertext.length < MIN_CIPHERTEXT_LEN) {
-    throw ErrInvalidCiphertext
+    throw ErrInvalidCiphertext()
   }
 
   // 1. sharedBuyer = ECDH(D_buyer, P_node)
@@ -144,16 +155,23 @@ export async function decryptWithCapsuleNonce(
   // 3. aesKey = capsule XOR buyerMask
   const aesKey = xorBytes(capsule, buyerMask)
 
-  // 4. Decrypt with AES-256-GCM (keyHash as AAD)
-  const plaintext = await aesGCMDecryptInternal(ciphertext, aesKey, keyHash)
+  try {
+    // 4. Decrypt with AES-256-GCM (keyHash as AAD)
+    const plaintext = await aesGCMDecrypt(ciphertext, aesKey, keyHash)
 
-  // 5. Verify content integrity: SHA256(SHA256(plaintext)) == keyHash
-  const computedHash = computeKeyHash(plaintext)
-  if (!uint8ArrayEqual(computedHash, keyHash)) {
-    throw ErrKeyHashMismatch
+    // 5. Verify content integrity: SHA256(SHA256(plaintext)) == keyHash
+    const computedHash = computeKeyHash(plaintext)
+    if (!timingSafeEqual(computedHash, keyHash)) {
+      throw ErrKeyHashMismatch()
+    }
+
+    return { plaintext, keyHash: computedHash }
+  } finally {
+    // S-04: Zero intermediate key material
+    sharedBuyer.fill(0)
+    buyerMask.fill(0)
+    aesKey.fill(0)
   }
-
-  return { plaintext, keyHash: computedHash }
 }
 
 // --- Internal helpers ---
@@ -168,32 +186,4 @@ function xorBytes(a: Uint8Array, b: Uint8Array): Uint8Array {
     out[i] = a[i] ^ b[i]
   }
   return out
-}
-
-/** Compares two Uint8Arrays for equality. */
-function uint8ArrayEqual(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.length !== b.length) return false
-  for (let i = 0; i < a.length; i++) {
-    if (a[i] !== b[i]) return false
-  }
-  return true
-}
-
-/** AES-GCM decrypt (duplicated here to avoid circular dependency with encrypt.ts). */
-async function aesGCMDecryptInternal(ciphertext: Uint8Array, key: Uint8Array, aad: Uint8Array): Promise<Uint8Array> {
-  if (ciphertext.length < MIN_CIPHERTEXT_LEN) {
-    throw ErrInvalidCiphertext
-  }
-
-  const nonceBytes = ciphertext.slice(0, NONCE_LEN)
-  const encrypted = ciphertext.slice(NONCE_LEN)
-
-  const cryptoKey = await importAESKey(key, ['decrypt'])
-
-  try {
-    const decrypted = await aesGcmDecrypt(cryptoKey, encrypted, nonceBytes, aad)
-    return new Uint8Array(decrypted)
-  } catch {
-    throw ErrDecryptionFailed
-  }
 }
