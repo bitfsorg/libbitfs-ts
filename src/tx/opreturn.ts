@@ -60,7 +60,7 @@ export function buildOPReturnData(
     throw new InvalidParentTxIDError(parentTxID.length)
   }
 
-  const pNodeBytes = Uint8Array.from(pNode.toDER())
+  const pNodeBytes = Uint8Array.from(pNode.toDER() as number[])
   if (pNodeBytes.length !== COMPRESSED_PUB_KEY_LEN) {
     throw new NilParamError(`invalid compressed public key length: ${pNodeBytes.length}`)
   }

@@ -241,7 +241,7 @@ export async function buildHTLCFundingTx(params: HTLCFundingParams): Promise<HTL
   const feeRate = params.feeRate > 0 ? params.feeRate : DEFAULT_HTLC_FEE_RATE
 
   // Build the HTLC locking script.
-  const buyerPubKey = params.buyerPrivKey.toPublicKey().toDER()
+  const buyerPubKey = params.buyerPrivKey.toPublicKey().toDER() as number[]
   const htlcScript = buildHTLC({
     buyerPubKey: Uint8Array.from(buyerPubKey),
     sellerPubKey: params.sellerPubKey,
@@ -442,8 +442,8 @@ export async function buildSellerClaimTx(params: SellerClaimParams): Promise<Uin
   const sig = params.sellerPrivKey.sign(sigHash)
 
   // Build unlocking script: <sig+flag> <seller_pubkey> <capsule> OP_TRUE
-  const sigBytes: number[] = [...sig.toDER(), scope & 0xff]
-  const sellerPubKey = params.sellerPrivKey.toPublicKey().toDER()
+  const sigBytes: number[] = [...(sig.toDER() as number[]), scope & 0xff]
+  const sellerPubKey = params.sellerPrivKey.toPublicKey().toDER() as number[]
 
   const unlockScript = new Script()
   unlockScript.writeBin(sigBytes)
