@@ -43,9 +43,9 @@
       "types": "./dist/network/index.d.ts",
       "import": "./dist/network/index.js"
     },
-    "./x402": {
-      "types": "./dist/x402/index.d.ts",
-      "import": "./dist/x402/index.js"
+    "./payment": {
+      "types": "./dist/payment/index.d.ts",
+      "import": "./dist/payment/index.js"
     },
     "./paymail": {
       "types": "./dist/paymail/index.d.ts",

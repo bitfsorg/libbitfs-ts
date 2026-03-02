@@ -132,7 +132,7 @@ describe('verifyHTLCFunding', () => {
 // Refund round-trip tests
 // ---------------------------------------------------------------------------
 
-describe('x402 refund flow', () => {
+describe('payment refund flow', () => {
   it('complete refund round-trip: fund -> pre-sign -> counter-sign', async () => {
     const sellerPriv = PrivateKey.fromRandom()
     const buyerPriv = PrivateKey.fromRandom()

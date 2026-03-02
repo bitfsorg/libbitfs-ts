@@ -2,7 +2,7 @@ import type { PaymentHeaders, Invoice } from './types.js'
 import { ErrMissingHeaders } from './errors.js'
 
 // ---------------------------------------------------------------------------
-// x402 HTTP header names
+// Payment HTTP header names (HTTP 402)
 // ---------------------------------------------------------------------------
 
 export const HEADER_PRICE = 'X-Price'
@@ -16,7 +16,7 @@ export const HEADER_EXPIRY = 'X-Expiry'
 // ---------------------------------------------------------------------------
 
 /**
- * Extracts x402 headers from a Headers object (browser Fetch API style).
+ * Extracts payment headers from a Headers object (browser Fetch API style).
  *
  * All five headers (X-Price, X-Price-Per-KB, X-File-Size, X-Invoice-Id,
  * X-Expiry) are required. Missing or invalid values throw an error.

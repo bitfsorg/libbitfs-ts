@@ -1,7 +1,8 @@
-// x402 — HTTP 402 Payment Required protocol for BitFS
+// payment — HTTP 402 Payment Required protocol for BitFS
 
 // Errors
 export {
+  PaymentError,
   X402Error,
   ErrInvoiceExpired,
   ErrInsufficientPayment,

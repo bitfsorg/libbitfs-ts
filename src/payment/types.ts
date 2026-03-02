@@ -171,7 +171,7 @@ export interface SellerClaimParams {
 // ---------------------------------------------------------------------------
 
 /**
- * PaymentHeaders holds the x402 HTTP headers for a 402 response.
+ * PaymentHeaders holds the payment HTTP headers for a 402 response.
  */
 export interface PaymentHeaders {
   price: bigint

@@ -1,11 +1,14 @@
 import { BitfsError } from '../errors.js'
 
-export class X402Error extends BitfsError {
+export class PaymentError extends BitfsError {
   constructor(message: string, code: string) {
     super(message, code)
-    this.name = 'X402Error'
+    this.name = 'PaymentError'
   }
 }
+
+/** @deprecated Use PaymentError instead. */
+export const X402Error = PaymentError
 
 export const ErrInvoiceExpired = () => new X402Error('invoice expired', 'ERR_INVOICE_EXPIRED')
 export const ErrInsufficientPayment = () => new X402Error('insufficient payment amount', 'ERR_INSUFFICIENT_PAYMENT')

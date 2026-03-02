@@ -31,8 +31,8 @@ import { serializeRegistry } from '../revshare/serialize.js'
 import { distributeRevenue } from '../revshare/distribute.js'
 import type { RegistryState, RevShareEntry } from '../revshare/types.js'
 import { compress, decompress, CompressLZW } from '../storage/compress.js'
-import { buildHTLC, extractCapsuleHashFromHTLC, extractInvoiceIDFromHTLC } from '../x402/htlc.js'
-import type { HTLCParams } from '../x402/types.js'
+import { buildHTLC, extractCapsuleHashFromHTLC, extractInvoiceIDFromHTLC } from '../payment/htlc.js'
+import type { HTLCParams } from '../payment/types.js'
 import { doubleHash } from '../spv/merkle.js'
 import { serializeHeader, deserializeHeader, computeHeaderHash } from '../spv/header.js'
 import type { BlockHeader } from '../spv/types.js'
@@ -532,7 +532,7 @@ describe('cross-language: storage_compress_lzw', () => {
   })
 })
 
-describe('cross-language: x402_htlc_script', () => {
+describe('cross-language: payment_htlc_script', () => {
   it('buildHTLC produces deterministic script (no invoice ID)', () => {
     const params: HTLCParams = {
       buyerPubKey: hexToBytes('030000000000000000000000000000000000000000000000000000000000000001'),

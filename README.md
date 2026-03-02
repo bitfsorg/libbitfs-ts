@@ -11,7 +11,7 @@ Mirrors the functionality of [libbitfs-go](https://github.com/bitfsorg/libbitfs-
 - **Metanet DAG** -- TLV serialization (49 tag types), directory operations, Merkle tree, path/link resolution
 - **SPV verification** -- block header chain validation, Proof-of-Work checks, Merkle proof verification
 - **Atomic transactions** -- MutationBatch builder for multi-operation transaction construction
-- **x402 payments** -- HTTP 402 protocol, HTLC script construction, invoice management
+- **payment** -- HTTP 402 protocol, HTLC script construction, invoice management
 - **Content storage** -- content-addressed store, LZW/GZIP compression, chunking with recombination hashes
 - **Revenue sharing** -- distribution algorithm, registry/share/ISO pool serialization
 - **Paymail** -- BRFC capability discovery, PKI resolution, `bitfs://` URI parsing
@@ -38,7 +38,7 @@ npm install @bitfs/libbitfs @bsv/sdk
 | `spv` | Block headers, Merkle proofs, PoW validation, SPV transaction verification |
 | `storage` | Content-addressed file store, compression (LZW/GZIP), chunking, ContentResolver |
 | `network` | BlockchainService interface, RPCClient, SPVClient, network presets |
-| `x402` | HTTP 402 payment protocol, HTLC scripts, invoice creation, payment verification |
+| `payment` | HTTP 402 payment protocol, HTLC scripts, invoice creation, payment verification |
 | `paymail` | Paymail discovery, PKI resolution, BRFC IDs, `bitfs://` URI parsing |
 | `config` | Configuration file parsing (key=value format), validation |
 | `revshare` | Revenue share entries, distribution algorithm, binary serialization |
@@ -114,7 +114,7 @@ This enables tree-shaking -- bundlers will only include the modules you actually
 | metanet | Yes | Yes | |
 | tx | Yes | Yes | |
 | spv | Yes | Yes | |
-| x402 | Yes | Yes | |
+| payment | Yes | Yes | |
 | paymail | Yes | Yes | |
 | network | Yes | Yes | |
 | revshare | Yes | Yes | |
