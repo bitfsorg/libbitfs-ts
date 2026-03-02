@@ -19,6 +19,7 @@ import {
 } from './errors.js'
 
 import { sha256 } from '@noble/hashes/sha256'
+import { timingSafeEqual } from '../util.js'
 
 // ---------------------------------------------------------------------------
 // Internal types for JSON-RPC 1.0
@@ -255,14 +256,6 @@ function traversePartialMerkleTree(
     return h
   }
 
-  function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
-    if (a.length !== b.length) return false
-    for (let i = 0; i < a.length; i++) {
-      if (a[i] !== b[i]) return false
-    }
-    return true
-  }
-
   interface NodeResult {
     hash: Uint8Array
     found: boolean
@@ -279,7 +272,7 @@ function traversePartialMerkleTree(
 
     if (depth === 0) {
       const h = getHash()
-      const isTarget = bytesEqual(h, targetTxID)
+      const isTarget = timingSafeEqual(h, targetTxID)
       return { hash: h, found: isTarget, index: pos, branch: [] }
     }
 
@@ -383,6 +376,7 @@ export class RPCClient implements BlockchainService {
         method: 'POST',
         headers,
         body: JSON.stringify(reqBody),
+        signal: AbortSignal.timeout(30_000),
       })
     } catch (err) {
       throw new ConnectionFailedError(
@@ -402,6 +396,13 @@ export class RPCClient implements BlockchainService {
     }
 
     const rpcResp: RPCResponse = await resp.json()
+
+    if (typeof rpcResp !== 'object' || rpcResp === null) {
+      throw new InvalidResponseError('malformed JSON-RPC response')
+    }
+    if (!('result' in rpcResp) && !('error' in rpcResp)) {
+      throw new InvalidResponseError('response missing both result and error fields')
+    }
 
     if (rpcResp.id !== reqBody.id) {
       throw new InvalidResponseError(
