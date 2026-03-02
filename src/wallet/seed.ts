@@ -30,13 +30,13 @@ export const MNEMONIC_12_WORDS = 128
 export const MNEMONIC_24_WORDS = 256
 
 /** Argon2id time cost (iterations). */
-export const ARGON2_TIME = 3
+export const ARGON2_TIME = 10
 
-/** Argon2id memory cost in KiB (64 MB). */
-export const ARGON2_MEMORY = 65536 // 64 * 1024
+/** Argon2id memory cost in KiB (256 MB). */
+export const ARGON2_MEMORY = 262144 // 256 * 1024
 
 /** Argon2id parallelism (threads). */
-export const ARGON2_PARALLELISM = 4
+export const ARGON2_PARALLELISM = 1
 
 /** Argon2id output key length in bytes. */
 export const ARGON2_KEY_LEN = 32
@@ -142,20 +142,26 @@ export async function encryptSeed(seed: Uint8Array, password: string): Promise<U
   plaintext.set(seed, 0)
   plaintext.set(checksum, seed.length)
 
-  // AES-256-GCM encryption using Web Crypto API
-  const nonce = crypto.getRandomValues(new Uint8Array(NONCE_LEN))
-  const cryptoKey = await importAESKey(derivedKey, ['encrypt'])
-  const ciphertext = new Uint8Array(
-    await aesGcmEncrypt(cryptoKey, plaintext, nonce),
-  )
+  try {
+    // AES-256-GCM encryption using Web Crypto API
+    const nonce = crypto.getRandomValues(new Uint8Array(NONCE_LEN))
+    const cryptoKey = await importAESKey(derivedKey, ['encrypt'])
+    const ciphertext = new Uint8Array(
+      await aesGcmEncrypt(cryptoKey, plaintext, nonce),
+    )
 
-  // Output: salt(16B) || nonce(12B) || ciphertext
-  const result = new Uint8Array(SALT_LEN + NONCE_LEN + ciphertext.length)
-  result.set(salt, 0)
-  result.set(nonce, SALT_LEN)
-  result.set(ciphertext, SALT_LEN + NONCE_LEN)
+    // Output: salt(16B) || nonce(12B) || ciphertext
+    const result = new Uint8Array(SALT_LEN + NONCE_LEN + ciphertext.length)
+    result.set(salt, 0)
+    result.set(nonce, SALT_LEN)
+    result.set(ciphertext, SALT_LEN + NONCE_LEN)
 
-  return result
+    return result
+  } finally {
+    // S-04: Zero key material after use
+    derivedKey.fill(0)
+    plaintext.fill(0)
+  }
 }
 
 /**
@@ -189,34 +195,43 @@ export async function decryptSeed(encrypted: Uint8Array, password: string): Prom
     dkLen: ARGON2_KEY_LEN,
   })
 
-  // AES-256-GCM decryption
-  let plaintext: Uint8Array
+  let plaintext: Uint8Array | undefined
   try {
-    const cryptoKey = await importAESKey(derivedKey, ['decrypt'])
-    plaintext = new Uint8Array(
-      await aesGcmDecrypt(cryptoKey, ciphertext, nonce),
-    )
-  } catch {
-    throw new DecryptionFailedError()
-  }
+    // AES-256-GCM decryption
+    try {
+      const cryptoKey = await importAESKey(derivedKey, ['decrypt'])
+      plaintext = new Uint8Array(
+        await aesGcmDecrypt(cryptoKey, ciphertext, nonce),
+      )
+    } catch {
+      throw new DecryptionFailedError()
+    }
 
-  if (plaintext.length < CHECKSUM_LEN) {
-    throw new DecryptionFailedError()
-  }
+    if (plaintext.length < CHECKSUM_LEN) {
+      throw new DecryptionFailedError()
+    }
 
-  // Split seed and checksum
-  const seed = plaintext.slice(0, plaintext.length - CHECKSUM_LEN)
-  const storedChecksum = plaintext.slice(plaintext.length - CHECKSUM_LEN)
+    // Split seed and checksum
+    const seed = plaintext.slice(0, plaintext.length - CHECKSUM_LEN)
+    const storedChecksum = plaintext.slice(plaintext.length - CHECKSUM_LEN)
 
-  // Verify checksum
-  const seedHash = sha256(seed)
-  const expectedChecksum = seedHash.slice(0, CHECKSUM_LEN)
+    // Verify checksum
+    const seedHash = sha256(seed)
+    const expectedChecksum = seedHash.slice(0, CHECKSUM_LEN)
 
-  for (let i = 0; i < CHECKSUM_LEN; i++) {
-    if (storedChecksum[i] !== expectedChecksum[i]) {
+    // Constant-time comparison to prevent timing side-channel
+    let diff = 0
+    for (let i = 0; i < CHECKSUM_LEN; i++) {
+      diff |= storedChecksum[i] ^ expectedChecksum[i]
+    }
+    if (diff !== 0) {
       throw new ChecksumMismatchError()
     }
-  }
 
-  return seed
+    return seed
+  } finally {
+    // S-04: Zero key material after use
+    derivedKey.fill(0)
+    if (plaintext) plaintext.fill(0)
+  }
 }
