@@ -6,6 +6,10 @@
  *
  * Each test calls the corresponding TS function with the same inputs
  * and verifies that the output matches the Go output exactly.
+ *
+ * For categories not yet covered by Go-generated vectors, we use
+ * hardcoded regression vectors produced by the TS implementation itself.
+ * These ensure that outputs remain stable across refactors.
  */
 
 import { describe, it, expect } from 'vitest'
@@ -14,14 +18,24 @@ import { PrivateKey, PublicKey } from '@bsv/sdk'
 import vectors from './vectors/go-vectors.json'
 
 import { ecdh } from '../method42/ecdh.js'
-import { computeKeyHash, deriveAESKey } from '../method42/kdf.js'
+import { computeKeyHash, deriveAESKey, deriveBuyerMask } from '../method42/kdf.js'
+import { Access } from '../method42/access.js'
+import { encrypt, decrypt } from '../method42/encrypt.js'
+import { computeCapsule } from '../method42/capsule.js'
 import { Wallet, seedFromMnemonic, MainNet, EXTERNAL_CHAIN } from '../wallet/index.js'
-import { serializeChildEntry } from '../metanet/tlv.js'
+import { serializeChildEntry, deserializeChildEntry } from '../metanet/tlv.js'
 import { NodeType } from '../metanet/types.js'
 import type { ChildEntry } from '../metanet/types.js'
+import { computeDirectoryMerkleRoot, computeChildLeafHash, verifyChildMembership, buildDirectoryMerkleProof } from '../metanet/merkle.js'
 import { serializeRegistry } from '../revshare/serialize.js'
-import type { RegistryState } from '../revshare/types.js'
+import { distributeRevenue } from '../revshare/distribute.js'
+import type { RegistryState, RevShareEntry } from '../revshare/types.js'
+import { compress, decompress, CompressLZW } from '../storage/compress.js'
+import { buildHTLC, extractCapsuleHashFromHTLC, extractInvoiceIDFromHTLC } from '../x402/htlc.js'
+import type { HTLCParams } from '../x402/types.js'
 import { doubleHash } from '../spv/merkle.js'
+import { serializeHeader, deserializeHeader, computeHeaderHash } from '../spv/header.js'
+import type { BlockHeader } from '../spv/types.js'
 
 // ---------------------------------------------------------------------------
 // Hex helpers (self-contained, no external dependency)
@@ -44,7 +58,7 @@ function bytesToHex(data: Uint8Array): string {
 }
 
 // ---------------------------------------------------------------------------
-// Tests
+// Original cross-language tests (Go-generated vectors)
 // ---------------------------------------------------------------------------
 
 describe('cross-language: method42', () => {
@@ -137,5 +151,523 @@ describe('cross-language: spv', () => {
     const data = hexToBytes(v.data_hex)
     const hash = doubleHash(data)
     expect(bytesToHex(hash)).toBe(v.hash_hex)
+  })
+})
+
+// ===========================================================================
+// NEW: Regression test vectors (TS-generated, hardcoded for stability)
+// These cover the 8 areas not yet in the Go-generated vector file.
+// ===========================================================================
+
+describe('cross-language: method42_encrypt (round-trip)', () => {
+  // encrypt() uses a random nonce, so we cannot test exact ciphertext bytes.
+  // Instead we verify that encrypt -> decrypt round-trips correctly, and that
+  // the keyHash output is deterministic for the same plaintext.
+
+  it('encrypt/decrypt round-trip with PRIVATE access', async () => {
+    const nodePriv = PrivateKey.fromString(
+      '0000000000000000000000000000000000000000000000000000000000000005',
+      'hex',
+    )
+    const nodePub = nodePriv.toPublicKey()
+    const plaintext = new TextEncoder().encode('Hello, Method 42!')
+
+    const enc = await encrypt(plaintext, nodePriv, nodePub, Access.Private)
+
+    // keyHash must be deterministic = SHA256(SHA256(plaintext))
+    const expectedKeyHash = computeKeyHash(plaintext)
+    expect(bytesToHex(enc.keyHash)).toBe(bytesToHex(expectedKeyHash))
+
+    // Ciphertext must be >= nonce(12) + tag(16) bytes
+    expect(enc.ciphertext.length).toBeGreaterThanOrEqual(28)
+
+    // Decrypt and verify
+    const dec = await decrypt(enc.ciphertext, nodePriv, nodePub, enc.keyHash, Access.Private)
+    expect(new TextDecoder().decode(dec.plaintext)).toBe('Hello, Method 42!')
+    expect(bytesToHex(dec.keyHash)).toBe(bytesToHex(expectedKeyHash))
+  })
+
+  it('encrypt/decrypt round-trip with FREE access', async () => {
+    // FREE mode: D_node = scalar(1), so anyone can decrypt knowing P_node.
+    const nodePriv = PrivateKey.fromString(
+      '000000000000000000000000000000000000000000000000000000000000000a',
+      'hex',
+    )
+    const nodePub = nodePriv.toPublicKey()
+    const plaintext = hexToBytes('deadbeefcafe0102030405')
+
+    const enc = await encrypt(plaintext, null, nodePub, Access.Free)
+    const dec = await decrypt(enc.ciphertext, null, nodePub, enc.keyHash, Access.Free)
+    expect(bytesToHex(dec.plaintext)).toBe('deadbeefcafe0102030405')
+  })
+
+  it('keyHash is stable for known plaintext', () => {
+    // Regression vector: keyHash for "deadbeef"
+    const plaintext = hexToBytes('deadbeef')
+    const kh = computeKeyHash(plaintext)
+    expect(bytesToHex(kh)).toBe('281dd50f6f56bc6e867fe73dd614a73c55a647a479704f64804b574cafb0f5c5')
+  })
+})
+
+describe('cross-language: method42_capsule', () => {
+  // computeCapsule is deterministic for given (D_node, P_node, P_buyer, keyHash).
+  // We hardcode the expected capsule as a regression vector.
+
+  it('computeCapsule produces deterministic output', () => {
+    // Node keys
+    const nodePriv = PrivateKey.fromString(
+      '0000000000000000000000000000000000000000000000000000000000000003',
+      'hex',
+    )
+    const nodePub = nodePriv.toPublicKey()
+
+    // Buyer keys
+    const buyerPriv = PrivateKey.fromString(
+      '0000000000000000000000000000000000000000000000000000000000000007',
+      'hex',
+    )
+    const buyerPub = buyerPriv.toPublicKey()
+
+    const keyHash = hexToBytes('281dd50f6f56bc6e867fe73dd614a73c55a647a479704f64804b574cafb0f5c5')
+
+    const capsule = computeCapsule(nodePriv, nodePub, buyerPub, keyHash)
+    expect(capsule.length).toBe(32)
+
+    // Regression vector: the capsule should be stable
+    // capsule = aesKey XOR buyerMask, both derived via HKDF
+    const sharedNode = ecdh(nodePriv, nodePub)
+    const aesKey = deriveAESKey(sharedNode, keyHash)
+    const sharedBuyer = ecdh(nodePriv, buyerPub)
+    const buyerMask = deriveBuyerMask(sharedBuyer, keyHash)
+
+    // capsule = aesKey XOR buyerMask
+    const expected = new Uint8Array(32)
+    for (let i = 0; i < 32; i++) {
+      expected[i] = aesKey[i] ^ buyerMask[i]
+    }
+    expect(bytesToHex(capsule)).toBe(bytesToHex(expected))
+
+    // Also verify the capsule bytes are stable across runs (hardcoded regression).
+    // This value was produced by the first successful run of this test.
+    // If this changes, the crypto derivation has been altered.
+    expect(bytesToHex(capsule)).toMatchInlineSnapshot(`"a9005ea0128333f8cac17efeaed3b8c50117690b926c138f42faea15c268cf07"`)
+  })
+
+  it('buyer can decrypt via capsule round-trip', async () => {
+    const nodePriv = PrivateKey.fromString(
+      '0000000000000000000000000000000000000000000000000000000000000003',
+      'hex',
+    )
+    const nodePub = nodePriv.toPublicKey()
+    const buyerPriv = PrivateKey.fromString(
+      '0000000000000000000000000000000000000000000000000000000000000007',
+      'hex',
+    )
+    const buyerPub = buyerPriv.toPublicKey()
+
+    const plaintext = new TextEncoder().encode('paid content')
+    const enc = await encrypt(plaintext, nodePriv, nodePub, Access.Paid)
+
+    // Seller computes capsule for this buyer
+    const capsule = computeCapsule(nodePriv, nodePub, buyerPub, enc.keyHash)
+
+    // Buyer decrypts using capsule
+    const { decryptWithCapsule } = await import('../method42/capsule.js')
+    const dec = await decryptWithCapsule(enc.ciphertext, capsule, enc.keyHash, buyerPriv, nodePub)
+    expect(new TextDecoder().decode(dec.plaintext)).toBe('paid content')
+  })
+})
+
+describe('cross-language: metanet_tlv_roundtrip', () => {
+  it('serializeChildEntry/deserializeChildEntry round-trip', () => {
+    const entries: ChildEntry[] = [
+      {
+        index: 0,
+        name: 'readme.md',
+        type: NodeType.File,
+        pubKey: hexToBytes('030000000000000000000000000000000000000000000000000000000000000001'),
+        hardened: false,
+      },
+      {
+        index: 1,
+        name: 'src',
+        type: NodeType.Dir,
+        pubKey: hexToBytes('020000000000000000000000000000000000000000000000000000000000000002'),
+        hardened: true,
+      },
+      {
+        index: 99,
+        name: 'link-to-readme',
+        type: NodeType.Link,
+        pubKey: hexToBytes('030000000000000000000000000000000000000000000000000000000000000003'),
+        hardened: false,
+      },
+    ]
+
+    for (const entry of entries) {
+      const serialized = serializeChildEntry(entry)
+      const deserialized = deserializeChildEntry(serialized)
+
+      expect(deserialized.index).toBe(entry.index)
+      expect(deserialized.name).toBe(entry.name)
+      expect(deserialized.type).toBe(entry.type)
+      expect(bytesToHex(deserialized.pubKey)).toBe(bytesToHex(entry.pubKey))
+      expect(deserialized.hardened).toBe(entry.hardened)
+    }
+  })
+
+  it('serializeChildEntry produces stable hex for regression', () => {
+    const entry: ChildEntry = {
+      index: 7,
+      name: 'data.bin',
+      type: NodeType.File,
+      pubKey: hexToBytes('02aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'),
+      hardened: false,
+    }
+    const serialized = serializeChildEntry(entry)
+    // Regression: index(4) + nameLen(2) + "data.bin"(8) + type(4) + pkLen(1) + pk(33) + hardened(1) = 53 bytes
+    expect(serialized.length).toBe(53)
+    expect(bytesToHex(serialized)).toMatchInlineSnapshot(
+      `"070000000800646174612e62696e000000002102aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa00"`,
+    )
+  })
+})
+
+describe('cross-language: metanet_merkle_root', () => {
+  it('single child: merkle root equals leaf hash', () => {
+    const child: ChildEntry = {
+      index: 0,
+      name: 'only-child.txt',
+      type: NodeType.File,
+      pubKey: hexToBytes('020102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20'),
+      hardened: false,
+    }
+
+    const root = computeDirectoryMerkleRoot([child])
+    expect(root).not.toBeNull()
+
+    // For a single child, root == leaf hash
+    const leafHash = computeChildLeafHash(child)
+    expect(bytesToHex(root!)).toBe(bytesToHex(leafHash))
+  })
+
+  it('two children: merkle root is deterministic', () => {
+    const children: ChildEntry[] = [
+      {
+        index: 0,
+        name: 'a.txt',
+        type: NodeType.File,
+        pubKey: hexToBytes('030000000000000000000000000000000000000000000000000000000000000001'),
+        hardened: false,
+      },
+      {
+        index: 1,
+        name: 'b.txt',
+        type: NodeType.File,
+        pubKey: hexToBytes('030000000000000000000000000000000000000000000000000000000000000002'),
+        hardened: true,
+      },
+    ]
+
+    const root = computeDirectoryMerkleRoot(children)
+    expect(root).not.toBeNull()
+    expect(root!.length).toBe(32)
+
+    // Manually compute expected: DoubleHash(leaf0 || leaf1)
+    const leaf0 = computeChildLeafHash(children[0])
+    const leaf1 = computeChildLeafHash(children[1])
+    const combined = new Uint8Array(64)
+    combined.set(leaf0, 0)
+    combined.set(leaf1, 32)
+    const expected = doubleHash(combined)
+    expect(bytesToHex(root!)).toBe(bytesToHex(expected))
+
+    // Regression vector
+    expect(bytesToHex(root!)).toMatchInlineSnapshot(
+      `"8d666e4b5ec08a1f4ede1299b8323ad3065385919295ac98ead5648ffca68b20"`,
+    )
+  })
+
+  it('three children: merkle root with duplication padding', () => {
+    const children: ChildEntry[] = [
+      { index: 0, name: 'x', type: NodeType.File, pubKey: new Uint8Array(33), hardened: false },
+      { index: 1, name: 'y', type: NodeType.Dir, pubKey: new Uint8Array(33), hardened: false },
+      { index: 2, name: 'z', type: NodeType.Link, pubKey: new Uint8Array(33), hardened: true },
+    ]
+
+    const root = computeDirectoryMerkleRoot(children)
+    expect(root).not.toBeNull()
+    expect(root!.length).toBe(32)
+
+    // Regression vector for 3-child merkle root
+    expect(bytesToHex(root!)).toMatchInlineSnapshot(
+      `"cecc08934e3f14359f835ed2675f2f0fb915f757de10596806de7948b6465dbf"`,
+    )
+  })
+
+  it('merkle proof verification for each child', () => {
+    const children: ChildEntry[] = [
+      { index: 0, name: 'a', type: NodeType.File, pubKey: new Uint8Array(33), hardened: false },
+      { index: 1, name: 'b', type: NodeType.Dir, pubKey: new Uint8Array(33), hardened: false },
+      { index: 2, name: 'c', type: NodeType.File, pubKey: new Uint8Array(33), hardened: true },
+    ]
+
+    const root = computeDirectoryMerkleRoot(children)!
+
+    for (let i = 0; i < children.length; i++) {
+      const proof = buildDirectoryMerkleProof(children, i)
+      const valid = verifyChildMembership(children[i], proof, i, root)
+      expect(valid).toBe(true)
+    }
+  })
+
+  it('empty children returns null', () => {
+    expect(computeDirectoryMerkleRoot([])).toBeNull()
+  })
+})
+
+describe('cross-language: revshare_distribute', () => {
+  it('distributes revenue proportionally with remainder to last', () => {
+    const entries: RevShareEntry[] = [
+      { address: hexToBytes('a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3'), share: 6000n },
+      { address: hexToBytes('b0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3'), share: 4000n },
+    ]
+
+    const result = distributeRevenue(10000n, entries, 10000n)
+    expect(result.length).toBe(2)
+    expect(result[0].amount).toBe(6000n)
+    expect(result[1].amount).toBe(4000n)
+  })
+
+  it('handles remainder correctly for indivisible amounts', () => {
+    const entries: RevShareEntry[] = [
+      { address: new Uint8Array(20), share: 3333n },
+      { address: new Uint8Array(20), share: 3333n },
+      { address: new Uint8Array(20), share: 3334n },
+    ]
+
+    const result = distributeRevenue(10000n, entries, 10000n)
+    expect(result.length).toBe(3)
+
+    // First two: floor(10000 * 3333 / 10000) = 3333
+    expect(result[0].amount).toBe(3333n)
+    expect(result[1].amount).toBe(3333n)
+    // Last gets remainder: 10000 - 3333 - 3333 = 3334
+    expect(result[2].amount).toBe(3334n)
+
+    // Total must equal payment
+    const total = result.reduce((sum, d) => sum + d.amount, 0n)
+    expect(total).toBe(10000n)
+  })
+
+  it('distributes large amounts without precision loss', () => {
+    const entries: RevShareEntry[] = [
+      { address: hexToBytes('0000000000000000000000000000000000000001'), share: 1n },
+      { address: hexToBytes('0000000000000000000000000000000000000002'), share: 9999n },
+    ]
+
+    const totalPayment = 1000000000n // 10 BSV in satoshis
+    const result = distributeRevenue(totalPayment, entries, 10000n)
+
+    // entry[0]: floor(1e9 * 1 / 10000) = 100000
+    expect(result[0].amount).toBe(100000n)
+    // entry[1] (last): 1e9 - 100000 = 999900000
+    expect(result[1].amount).toBe(999900000n)
+
+    const total = result.reduce((sum, d) => sum + d.amount, 0n)
+    expect(total).toBe(totalPayment)
+  })
+
+  it('zero payment returns all-zero distributions', () => {
+    const entries: RevShareEntry[] = [
+      { address: new Uint8Array(20), share: 5000n },
+      { address: new Uint8Array(20), share: 5000n },
+    ]
+
+    const result = distributeRevenue(0n, entries, 10000n)
+    expect(result.length).toBe(2)
+    expect(result[0].amount).toBe(0n)
+    expect(result[1].amount).toBe(0n)
+  })
+})
+
+describe('cross-language: storage_compress_lzw', () => {
+  it('LZW compress/decompress round-trip for text', async () => {
+    const original = new TextEncoder().encode('Hello, LZW compression! This is a test string.')
+    const compressed = await compress(original, CompressLZW)
+    const decompressed = await decompress(compressed, CompressLZW)
+    expect(bytesToHex(decompressed)).toBe(bytesToHex(original))
+  })
+
+  it('LZW compress/decompress round-trip for binary data', async () => {
+    // Repeating pattern should compress well
+    const original = new Uint8Array(256)
+    for (let i = 0; i < 256; i++) {
+      original[i] = i % 16
+    }
+    const compressed = await compress(original, CompressLZW)
+    // Compressed should be smaller due to repetition
+    expect(compressed.length).toBeLessThan(original.length)
+    const decompressed = await decompress(compressed, CompressLZW)
+    expect(bytesToHex(decompressed)).toBe(bytesToHex(original))
+  })
+
+  it('LZW compress/decompress round-trip for empty data', async () => {
+    const original = new Uint8Array(0)
+    const compressed = await compress(original, CompressLZW)
+    const decompressed = await decompress(compressed, CompressLZW)
+    expect(decompressed.length).toBe(0)
+  })
+
+  it('LZW compressed output is deterministic', async () => {
+    const data = new TextEncoder().encode('deterministic test')
+    const compressed1 = await compress(data, CompressLZW)
+    const compressed2 = await compress(data, CompressLZW)
+    expect(bytesToHex(compressed1)).toBe(bytesToHex(compressed2))
+
+    // Regression vector
+    expect(bytesToHex(compressed1)).toMatchInlineSnapshot(
+      `"00c994a153464e9b346ed2cca193660c88810a01"`,
+    )
+  })
+})
+
+describe('cross-language: x402_htlc_script', () => {
+  it('buildHTLC produces deterministic script (no invoice ID)', () => {
+    const params: HTLCParams = {
+      buyerPubKey: hexToBytes('030000000000000000000000000000000000000000000000000000000000000001'),
+      sellerPubKey: hexToBytes('020000000000000000000000000000000000000000000000000000000000000002'),
+      sellerPubKeyHash: hexToBytes('aabbccddee00112233445566778899aabbccddee'),
+      capsuleHash: hexToBytes('0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20'),
+      amount: 50000n,
+      timeoutBlocks: 72,
+    }
+
+    const script = buildHTLC(params)
+    expect(script.length).toBeGreaterThan(0)
+
+    // Extract capsule hash and verify it matches
+    const extractedHash = extractCapsuleHashFromHTLC(script)
+    expect(bytesToHex(extractedHash)).toBe(bytesToHex(params.capsuleHash))
+
+    // No invoice ID in legacy format
+    const invoiceID = extractInvoiceIDFromHTLC(script)
+    expect(invoiceID).toBeNull()
+
+    // Regression vector for script bytes
+    expect(bytesToHex(script)).toMatchInlineSnapshot(
+      `"63a8200102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f208876a914aabbccddee00112233445566778899aabbccddee88ac6752210300000000000000000000000000000000000000000000000000000000000000012102000000000000000000000000000000000000000000000000000000000000000252ae68"`,
+    )
+  })
+
+  it('buildHTLC produces deterministic script (with invoice ID)', () => {
+    const invoiceID = hexToBytes('aabbccddeeff00112233445566778899')
+    const params: HTLCParams = {
+      buyerPubKey: hexToBytes('030000000000000000000000000000000000000000000000000000000000000001'),
+      sellerPubKey: hexToBytes('020000000000000000000000000000000000000000000000000000000000000002'),
+      sellerPubKeyHash: hexToBytes('aabbccddee00112233445566778899aabbccddee'),
+      capsuleHash: hexToBytes('0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20'),
+      amount: 50000n,
+      timeoutBlocks: 72,
+      invoiceID,
+    }
+
+    const script = buildHTLC(params)
+
+    // Extract invoice ID and verify
+    const extractedInvoiceID = extractInvoiceIDFromHTLC(script)
+    expect(extractedInvoiceID).not.toBeNull()
+    expect(bytesToHex(extractedInvoiceID!)).toBe('aabbccddeeff00112233445566778899')
+
+    // Extract capsule hash and verify
+    const extractedHash = extractCapsuleHashFromHTLC(script)
+    expect(bytesToHex(extractedHash)).toBe(bytesToHex(params.capsuleHash))
+
+    // Regression vector
+    expect(bytesToHex(script)).toMatchInlineSnapshot(
+      `"10aabbccddeeff001122334455667788997563a8200102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f208876a914aabbccddee00112233445566778899aabbccddee88ac6752210300000000000000000000000000000000000000000000000000000000000000012102000000000000000000000000000000000000000000000000000000000000000252ae68"`,
+    )
+  })
+})
+
+describe('cross-language: spv_header_serialize', () => {
+  // Test with a well-known header: Bitcoin genesis block
+  // (same hash function, BSV genesis is identical to BTC genesis)
+  const genesisHeader: BlockHeader = {
+    version: 1,
+    prevBlock: new Uint8Array(32), // all zeros
+    merkleRoot: hexToBytes('4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b'),
+    timestamp: 1231006505,
+    bits: 0x1d00ffff,
+    nonce: 2083236893,
+    height: 0,
+    hash: new Uint8Array(0), // will be computed
+  }
+
+  it('serializeHeader produces 80 bytes', () => {
+    const raw = serializeHeader(genesisHeader)
+    expect(raw.length).toBe(80)
+
+    // Regression vector: the genesis header bytes (little-endian)
+    expect(bytesToHex(raw)).toMatchInlineSnapshot(
+      `"0100000000000000000000000000000000000000000000000000000000000000000000004a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b29ab5f49ffff001d1dac2b7c"`,
+    )
+  })
+
+  it('deserializeHeader round-trip preserves all fields', () => {
+    const raw = serializeHeader(genesisHeader)
+    const deserialized = deserializeHeader(raw)
+
+    expect(deserialized.version).toBe(genesisHeader.version)
+    expect(bytesToHex(deserialized.prevBlock)).toBe(bytesToHex(genesisHeader.prevBlock))
+    expect(bytesToHex(deserialized.merkleRoot)).toBe(bytesToHex(genesisHeader.merkleRoot))
+    expect(deserialized.timestamp).toBe(genesisHeader.timestamp)
+    expect(deserialized.bits).toBe(genesisHeader.bits)
+    expect(deserialized.nonce).toBe(genesisHeader.nonce)
+  })
+
+  it('computeHeaderHash produces double-SHA256 of serialized header', () => {
+    const hash = computeHeaderHash(genesisHeader)
+    expect(hash.length).toBe(32)
+
+    // The hash should match doubleHash(serialize(header))
+    const raw = serializeHeader(genesisHeader)
+    const expected = doubleHash(raw)
+    expect(bytesToHex(hash)).toBe(bytesToHex(expected))
+
+    // Regression vector for genesis block hash
+    // Note: this is the raw hash bytes, NOT the display-order reversed txid
+    expect(bytesToHex(hash)).toMatchInlineSnapshot(
+      `"f2c63d39d066016fca487f769be448fe277c36f206e169462664f92a2f4f55f3"`,
+    )
+  })
+
+  it('custom header serialize/hash round-trip', () => {
+    const header: BlockHeader = {
+      version: 536870912,
+      prevBlock: hexToBytes('00000000000000000102030405060708090a0b0c0d0e0f101112131415161718'),
+      merkleRoot: hexToBytes('aabbccdd00112233445566778899aabbccddeeff00112233445566778899aabb'),
+      timestamp: 1700000000,
+      bits: 0x1d00ffff,
+      nonce: 12345678,
+      height: 100000,
+      hash: new Uint8Array(0),
+    }
+
+    const raw = serializeHeader(header)
+    expect(raw.length).toBe(80)
+
+    const deserialized = deserializeHeader(raw)
+    expect(deserialized.version).toBe(header.version)
+    expect(bytesToHex(deserialized.prevBlock)).toBe(bytesToHex(header.prevBlock))
+    expect(bytesToHex(deserialized.merkleRoot)).toBe(bytesToHex(header.merkleRoot))
+    expect(deserialized.timestamp).toBe(header.timestamp)
+    expect(deserialized.bits).toBe(header.bits)
+    expect(deserialized.nonce).toBe(header.nonce)
+
+    // Hash should be deterministic
+    const hash1 = computeHeaderHash(header)
+    const hash2 = computeHeaderHash(header)
+    expect(bytesToHex(hash1)).toBe(bytesToHex(hash2))
   })
 })
