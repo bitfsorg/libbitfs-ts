@@ -2,19 +2,15 @@ import { describe, it, expect } from 'vitest'
 import { Hash, OP, Script, Transaction, PrivateKey, LockingScript } from '@bsv/sdk'
 import {
   buildHTLC,
-  buildHTLCFundingTx,
 } from '../htlc.js'
 import {
   verifyHTLCFunding,
-  buildSellerPreSignedRefund,
   buildBuyerRefundTx,
 } from '../refund.js'
-import type { HTLCParams } from '../types.js'
+import type { BuyerRefundParams } from '../types.js'
 import {
   DEFAULT_HTLC_TIMEOUT,
-  COMPRESSED_PUB_KEY_LEN,
   PUB_KEY_HASH_LEN,
-  CAPSULE_HASH_LEN,
   INVOICE_ID_LEN,
 } from '../types.js'
 
@@ -137,359 +133,255 @@ describe('verifyHTLCFunding', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Refund round-trip tests
+// On-chain buyer refund tests
 // ---------------------------------------------------------------------------
 
-describe('payment refund flow', () => {
-  it('complete refund round-trip: fund -> pre-sign -> counter-sign', async () => {
-    const sellerPriv = PrivateKey.fromRandom()
-    const buyerPriv = PrivateKey.fromRandom()
-    const sellerPub = Uint8Array.from(sellerPriv.toPublicKey().toDER())
-    const buyerPub = Uint8Array.from(buyerPriv.toPublicKey().toDER())
-    const sellerPKH = Uint8Array.from(Hash.hash160(Array.from(sellerPub)))
-    const buyerPKH = Uint8Array.from(Hash.hash160(Array.from(buyerPub)))
-    const capsuleHash = makeCapsuleHash()
+describe('buildBuyerRefundTx (on-chain buyer-only)', () => {
+  const sellerPriv = PrivateKey.fromRandom()
+  const buyerPriv = PrivateKey.fromRandom()
+  const sellerPub = Uint8Array.from(sellerPriv.toPublicKey().toDER())
+  const buyerPub = Uint8Array.from(buyerPriv.toPublicKey().toDER())
+  const sellerPKH = Uint8Array.from(Hash.hash160(Array.from(sellerPub)))
+  const buyerPKH = Uint8Array.from(Hash.hash160(Array.from(buyerPub)))
+  const htlcScript = makeHTLCScript(buyerPub, sellerPub, sellerPKH)
 
-    // 1. Build HTLC script.
-    const htlcScript = buildHTLC({
-      buyerPubKey: buyerPub,
-      sellerPubKey: sellerPub,
-      sellerPubKeyHash: sellerPKH,
-      capsuleHash,
-      amount: 10000n,
-      timeoutBlocks: DEFAULT_HTLC_TIMEOUT,
-      invoiceID: makeInvoiceID(),
-    })
-
-    // 2. Create a mock funding UTXO (a transaction with the HTLC output).
-    const mockFundingTx = buildMockFundingTx(htlcScript, 10000)
-    const mockTxIdHex = mockFundingTx.id('hex')
-    // Convert hex txid to internal byte order (reverse bytes).
-    const fundingTxID = new Uint8Array(
-      mockTxIdHex.match(/.{2}/g)!.map((b: string) => parseInt(b, 16)).reverse(),
-    )
-
-    // 3. Seller pre-signs the refund.
-    const preSign = await buildSellerPreSignedRefund({
-      fundingTxID,
+  it('valid on-chain buyer refund', () => {
+    const refundRawTx = buildBuyerRefundTx({
+      fundingTxID: new Uint8Array(32).fill(0xab),
       fundingVout: 0,
-      fundingAmount: 10000n,
+      fundingAmount: 50000n,
       htlcScript,
-      sellerPrivKey: sellerPriv,
-      buyerOutputAddr: buyerPKH,
+      buyerPrivKey: buyerPriv,
+      outputAddr: buyerPKH,
       timeout: DEFAULT_HTLC_TIMEOUT,
       feeRate: 1,
     })
 
-    expect(preSign.txBytes.length).toBeGreaterThan(0)
-    expect(preSign.sellerSig.length).toBeGreaterThan(0)
-
-    // Verify seller pre-signed tx structure.
-    const preSignedTx = Transaction.fromBinary(Array.from(preSign.txBytes))
-    expect(preSignedTx.lockTime).toBe(DEFAULT_HTLC_TIMEOUT)
-    expect(preSignedTx.inputs[0].sequence).toBe(0xfffffffe)
-
-    // 4. Buyer counter-signs.
-    const refundRawTx = await buildBuyerRefundTx({
-      sellerPreSignedTx: preSign.txBytes,
-      sellerSig: preSign.sellerSig,
-      htlcScript,
-      fundingAmount: 10000n,
-      buyerPrivKey: buyerPriv,
-      fundingTxID,
-      fundingVout: 0,
-    })
-
     expect(refundRawTx.length).toBeGreaterThan(0)
 
-    // 5. Verify the final refund transaction.
     const refundTx = Transaction.fromBinary(Array.from(refundRawTx))
 
     // nLockTime should match the timeout.
     expect(refundTx.lockTime).toBe(DEFAULT_HTLC_TIMEOUT)
 
-    // Input sequence should enable nLockTime.
+    // Input sequence should enable nLockTime (< 0xffffffff).
     expect(refundTx.inputs[0].sequence).toBe(0xfffffffe)
 
-    // Output should go to buyer's address.
+    // Single output to buyer.
     expect(refundTx.outputs.length).toBe(1)
     const outputAmount = BigInt(refundTx.outputs[0].satoshis ?? 0)
     expect(outputAmount).toBeGreaterThan(0n)
-    expect(outputAmount).toBeLessThan(10000n) // Less due to fee.
+    expect(outputAmount).toBeLessThan(50000n) // Less due to fee.
 
-    // Unlocking script should have 4 chunks: OP_0 <buyer_sig> <seller_sig> OP_FALSE
+    // Unlocking script should have 4 chunks: <sig> <pubkey> <preimage> OP_1
     const unlockingScript = refundTx.inputs[0].unlockingScript
     expect(unlockingScript).toBeDefined()
     const chunks = unlockingScript!.chunks
     expect(chunks.length).toBe(4)
 
-    // First chunk: OP_0 (CHECKMULTISIG dummy).
-    expect(chunks[0].op).toBe(OP.OP_0)
+    // Chunk 0: buyer signature (push data).
+    expect(chunks[0].data).toBeDefined()
+    expect(chunks[0].data!.length).toBeGreaterThan(0)
 
-    // Chunks 1 and 2 should be push data (signatures).
+    // Chunk 1: buyer public key (push data, 33 bytes compressed).
     expect(chunks[1].data).toBeDefined()
-    expect(chunks[1].data!.length).toBeGreaterThan(0)
+    expect(chunks[1].data!.length).toBe(33)
+
+    // Chunk 2: BIP143 sighash preimage (push data).
     expect(chunks[2].data).toBeDefined()
-    expect(chunks[2].data!.length).toBeGreaterThan(0)
+    expect(chunks[2].data!.length).toBeGreaterThan(100) // preimage is ~180 bytes
 
-    // Last chunk: OP_FALSE (selects ELSE branch).
-    expect(chunks[3].op).toBe(OP.OP_0) // OP_FALSE === OP_0
+    // Chunk 3: OP_1 (method selector for refund path).
+    expect(chunks[3].op).toBe(OP.OP_1)
   })
 
-  it('buildBuyerRefundTx rejects mismatched funding txid', async () => {
-    const sellerPriv = PrivateKey.fromRandom()
-    const buyerPriv = PrivateKey.fromRandom()
-    const sellerPub = Uint8Array.from(sellerPriv.toPublicKey().toDER())
-    const buyerPub = Uint8Array.from(buyerPriv.toPublicKey().toDER())
-    const sellerPKH = Uint8Array.from(Hash.hash160(Array.from(sellerPub)))
-    const buyerPKH = Uint8Array.from(Hash.hash160(Array.from(buyerPub)))
-    const capsuleHash = makeCapsuleHash()
-
-    const htlcScript = buildHTLC({
-      buyerPubKey: buyerPub,
-      sellerPubKey: sellerPub,
-      sellerPubKeyHash: sellerPKH,
-      capsuleHash,
-      amount: 10000n,
-      timeoutBlocks: DEFAULT_HTLC_TIMEOUT,
-      invoiceID: makeInvoiceID(),
-    })
-
-    const mockFundingTx = buildMockFundingTx(htlcScript, 10000)
-    const mockTxIdHex = mockFundingTx.id('hex')
-    const fundingTxID = new Uint8Array(
-      mockTxIdHex.match(/.{2}/g)!.map((b: string) => parseInt(b, 16)).reverse(),
-    )
-
-    const preSign = await buildSellerPreSignedRefund({
-      fundingTxID,
+  it('uses default timeout when 0', () => {
+    const refundRawTx = buildBuyerRefundTx({
+      fundingTxID: new Uint8Array(32).fill(0xab),
       fundingVout: 0,
-      fundingAmount: 10000n,
+      fundingAmount: 50000n,
       htlcScript,
-      sellerPrivKey: sellerPriv,
-      buyerOutputAddr: buyerPKH,
-      timeout: DEFAULT_HTLC_TIMEOUT,
-      feeRate: 1,
-    })
-
-    // Pass a wrong funding TxID.
-    const wrongTxID = new Uint8Array(32).fill(0xff)
-    await expect(
-      buildBuyerRefundTx({
-        sellerPreSignedTx: preSign.txBytes,
-        sellerSig: preSign.sellerSig,
-        htlcScript,
-        fundingAmount: 10000n,
-        buyerPrivKey: buyerPriv,
-        fundingTxID: wrongTxID,
-        fundingVout: 0,
-      }),
-    ).rejects.toThrow('mismatch')
-  })
-
-  it('buildBuyerRefundTx rejects mismatched funding vout', async () => {
-    const sellerPriv = PrivateKey.fromRandom()
-    const buyerPriv = PrivateKey.fromRandom()
-    const sellerPub = Uint8Array.from(sellerPriv.toPublicKey().toDER())
-    const buyerPub = Uint8Array.from(buyerPriv.toPublicKey().toDER())
-    const sellerPKH = Uint8Array.from(Hash.hash160(Array.from(sellerPub)))
-    const buyerPKH = Uint8Array.from(Hash.hash160(Array.from(buyerPub)))
-    const capsuleHash = makeCapsuleHash()
-
-    const htlcScript = buildHTLC({
-      buyerPubKey: buyerPub,
-      sellerPubKey: sellerPub,
-      sellerPubKeyHash: sellerPKH,
-      capsuleHash,
-      amount: 10000n,
-      timeoutBlocks: DEFAULT_HTLC_TIMEOUT,
-      invoiceID: makeInvoiceID(),
-    })
-
-    const mockFundingTx = buildMockFundingTx(htlcScript, 10000)
-    const mockTxIdHex = mockFundingTx.id('hex')
-    const fundingTxID = new Uint8Array(
-      mockTxIdHex.match(/.{2}/g)!.map((b: string) => parseInt(b, 16)).reverse(),
-    )
-
-    const preSign = await buildSellerPreSignedRefund({
-      fundingTxID,
-      fundingVout: 0,
-      fundingAmount: 10000n,
-      htlcScript,
-      sellerPrivKey: sellerPriv,
-      buyerOutputAddr: buyerPKH,
-      timeout: DEFAULT_HTLC_TIMEOUT,
-      feeRate: 1,
-    })
-
-    // Correct TxID but wrong vout.
-    await expect(
-      buildBuyerRefundTx({
-        sellerPreSignedTx: preSign.txBytes,
-        sellerSig: preSign.sellerSig,
-        htlcScript,
-        fundingAmount: 10000n,
-        buyerPrivKey: buyerPriv,
-        fundingTxID,
-        fundingVout: 99,
-      }),
-    ).rejects.toThrow('mismatch')
-  })
-
-  it('buildBuyerRefundTx skips check when fundingTxID not provided', async () => {
-    const sellerPriv = PrivateKey.fromRandom()
-    const buyerPriv = PrivateKey.fromRandom()
-    const sellerPub = Uint8Array.from(sellerPriv.toPublicKey().toDER())
-    const buyerPub = Uint8Array.from(buyerPriv.toPublicKey().toDER())
-    const sellerPKH = Uint8Array.from(Hash.hash160(Array.from(sellerPub)))
-    const buyerPKH = Uint8Array.from(Hash.hash160(Array.from(buyerPub)))
-    const capsuleHash = makeCapsuleHash()
-
-    const htlcScript = buildHTLC({
-      buyerPubKey: buyerPub,
-      sellerPubKey: sellerPub,
-      sellerPubKeyHash: sellerPKH,
-      capsuleHash,
-      amount: 10000n,
-      timeoutBlocks: DEFAULT_HTLC_TIMEOUT,
-      invoiceID: makeInvoiceID(),
-    })
-
-    const mockFundingTx = buildMockFundingTx(htlcScript, 10000)
-    const mockTxIdHex = mockFundingTx.id('hex')
-    const fundingTxID = new Uint8Array(
-      mockTxIdHex.match(/.{2}/g)!.map((b: string) => parseInt(b, 16)).reverse(),
-    )
-
-    const preSign = await buildSellerPreSignedRefund({
-      fundingTxID,
-      fundingVout: 0,
-      fundingAmount: 10000n,
-      htlcScript,
-      sellerPrivKey: sellerPriv,
-      buyerOutputAddr: buyerPKH,
-      timeout: DEFAULT_HTLC_TIMEOUT,
-      feeRate: 1,
-    })
-
-    // No fundingTxID — should skip check and succeed.
-    const refundRawTx = await buildBuyerRefundTx({
-      sellerPreSignedTx: preSign.txBytes,
-      sellerSig: preSign.sellerSig,
-      htlcScript,
-      fundingAmount: 10000n,
       buyerPrivKey: buyerPriv,
+      outputAddr: buyerPKH,
+      timeout: 0,
+      feeRate: 1,
+    })
+
+    const refundTx = Transaction.fromBinary(Array.from(refundRawTx))
+    expect(refundTx.lockTime).toBe(DEFAULT_HTLC_TIMEOUT)
+  })
+
+  it('uses custom timeout', () => {
+    const refundRawTx = buildBuyerRefundTx({
+      fundingTxID: new Uint8Array(32).fill(0xab),
+      fundingVout: 0,
+      fundingAmount: 50000n,
+      htlcScript,
+      buyerPrivKey: buyerPriv,
+      outputAddr: buyerPKH,
+      timeout: 100,
+      feeRate: 1,
+    })
+
+    const refundTx = Transaction.fromBinary(Array.from(refundRawTx))
+    expect(refundTx.lockTime).toBe(100)
+  })
+
+  it('uses default fee rate when not specified', () => {
+    const refundRawTx = buildBuyerRefundTx({
+      fundingTxID: new Uint8Array(32).fill(0xab),
+      fundingVout: 0,
+      fundingAmount: 50000n,
+      htlcScript,
+      buyerPrivKey: buyerPriv,
+      outputAddr: buyerPKH,
+      timeout: DEFAULT_HTLC_TIMEOUT,
     })
 
     expect(refundRawTx.length).toBeGreaterThan(0)
+    const refundTx = Transaction.fromBinary(Array.from(refundRawTx))
+    // Output should reflect default 1 sat/byte fee rate
+    const outputAmount = BigInt(refundTx.outputs[0].satoshis ?? 0)
+    expect(outputAmount).toBeGreaterThan(0n)
+    expect(outputAmount).toBeLessThan(50000n)
   })
 
-  it('buildSellerPreSignedRefund uses default timeout when 0', async () => {
-    const sellerPriv = PrivateKey.fromRandom()
-    const buyerPriv = PrivateKey.fromRandom()
-    const sellerPub = Uint8Array.from(sellerPriv.toPublicKey().toDER())
-    const buyerPub = Uint8Array.from(buyerPriv.toPublicKey().toDER())
-    const sellerPKH = Uint8Array.from(Hash.hash160(Array.from(sellerPub)))
-    const buyerPKH = Uint8Array.from(Hash.hash160(Array.from(buyerPub)))
-    const capsuleHash = makeCapsuleHash()
-
-    const htlcScript = buildHTLC({
-      buyerPubKey: buyerPub,
-      sellerPubKey: sellerPub,
-      sellerPubKeyHash: sellerPKH,
-      capsuleHash,
-      amount: 10000n,
-      timeoutBlocks: DEFAULT_HTLC_TIMEOUT,
-      invoiceID: makeInvoiceID(),
-    })
-
-    const mockTxID = new Uint8Array(32).fill(0xab)
-
-    const preSign = await buildSellerPreSignedRefund({
-      fundingTxID: mockTxID,
-      fundingVout: 0,
-      fundingAmount: 10000n,
+  it('handles non-zero fundingVout', () => {
+    const refundRawTx = buildBuyerRefundTx({
+      fundingTxID: new Uint8Array(32).fill(0xab),
+      fundingVout: 2,
+      fundingAmount: 50000n,
       htlcScript,
-      sellerPrivKey: sellerPriv,
-      buyerOutputAddr: buyerPKH,
-      timeout: 0, // Should default to DEFAULT_HTLC_TIMEOUT.
+      buyerPrivKey: buyerPriv,
+      outputAddr: buyerPKH,
+      timeout: DEFAULT_HTLC_TIMEOUT,
       feeRate: 1,
     })
 
-    const tx = Transaction.fromBinary(Array.from(preSign.txBytes))
-    expect(tx.lockTime).toBe(DEFAULT_HTLC_TIMEOUT)
+    expect(refundRawTx.length).toBeGreaterThan(0)
+    const refundTx = Transaction.fromBinary(Array.from(refundRawTx))
+    expect(refundTx.inputs[0].sourceOutputIndex).toBe(2)
   })
 
-  it('buildSellerPreSignedRefund rejects nil params', async () => {
-    await expect(
-      buildSellerPreSignedRefund(null as unknown as Parameters<typeof buildSellerPreSignedRefund>[0]),
-    ).rejects.toThrow('nil params')
+  // -------------------------------------------------------------------------
+  // Error cases
+  // -------------------------------------------------------------------------
+
+  it('rejects nil params', () => {
+    expect(() =>
+      buildBuyerRefundTx(null as unknown as BuyerRefundParams),
+    ).toThrow('nil params')
   })
 
-  it('buildSellerPreSignedRefund rejects short funding txid', async () => {
-    const sellerPriv = PrivateKey.fromRandom()
-    const buyerPKH = new Uint8Array(PUB_KEY_HASH_LEN)
-    await expect(
-      buildSellerPreSignedRefund({
-        fundingTxID: new Uint8Array(16), // too short
-        fundingVout: 0,
-        fundingAmount: 10000n,
-        htlcScript: new Uint8Array([1, 2, 3]),
-        sellerPrivKey: sellerPriv,
-        buyerOutputAddr: buyerPKH,
-        timeout: DEFAULT_HTLC_TIMEOUT,
-        feeRate: 1,
-      }),
-    ).rejects.toThrow('funding txid must be 32 bytes')
-  })
-
-  it('buildSellerPreSignedRefund rejects funding amount too small for fee', async () => {
-    const sellerPriv = PrivateKey.fromRandom()
-    const buyerPKH = new Uint8Array(PUB_KEY_HASH_LEN)
-    await expect(
-      buildSellerPreSignedRefund({
+  it('rejects nil buyer private key', () => {
+    expect(() =>
+      buildBuyerRefundTx({
         fundingTxID: new Uint8Array(32),
         fundingVout: 0,
-        fundingAmount: 1n, // too small for fee
-        htlcScript: new Uint8Array([1, 2, 3]),
-        sellerPrivKey: sellerPriv,
-        buyerOutputAddr: buyerPKH,
+        fundingAmount: 50000n,
+        htlcScript,
+        buyerPrivKey: null as unknown as PrivateKey,
+        outputAddr: buyerPKH,
         timeout: DEFAULT_HTLC_TIMEOUT,
-        feeRate: 1,
-      }),
-    ).rejects.toThrow('too small for fee')
+      } as BuyerRefundParams),
+    ).toThrow('nil buyer private key')
   })
 
-  it('buildBuyerRefundTx rejects nil params', async () => {
-    await expect(
-      buildBuyerRefundTx(null as unknown as Parameters<typeof buildBuyerRefundTx>[0]),
-    ).rejects.toThrow('nil params')
-  })
-
-  it('buildBuyerRefundTx rejects empty seller pre-signed tx', async () => {
-    const buyerPriv = PrivateKey.fromRandom()
-    await expect(
+  it('rejects short funding txid', () => {
+    expect(() =>
       buildBuyerRefundTx({
-        sellerPreSignedTx: new Uint8Array(0),
-        sellerSig: new Uint8Array([1, 2, 3]),
-        htlcScript: new Uint8Array([1, 2, 3]),
-        fundingAmount: 10000n,
+        fundingTxID: new Uint8Array(16), // too short
+        fundingVout: 0,
+        fundingAmount: 50000n,
+        htlcScript,
         buyerPrivKey: buyerPriv,
+        outputAddr: buyerPKH,
+        timeout: DEFAULT_HTLC_TIMEOUT,
       }),
-    ).rejects.toThrow('empty seller pre-signed tx')
+    ).toThrow('funding txid must be 32 bytes')
   })
 
-  it('buildBuyerRefundTx rejects empty seller signature', async () => {
-    const buyerPriv = PrivateKey.fromRandom()
-    await expect(
+  it('rejects empty HTLC script', () => {
+    expect(() =>
       buildBuyerRefundTx({
-        sellerPreSignedTx: new Uint8Array([1, 2, 3]),
-        sellerSig: new Uint8Array(0),
-        htlcScript: new Uint8Array([1, 2, 3]),
-        fundingAmount: 10000n,
+        fundingTxID: new Uint8Array(32),
+        fundingVout: 0,
+        fundingAmount: 50000n,
+        htlcScript: new Uint8Array(0),
         buyerPrivKey: buyerPriv,
+        outputAddr: buyerPKH,
+        timeout: DEFAULT_HTLC_TIMEOUT,
       }),
-    ).rejects.toThrow('empty seller signature')
+    ).toThrow('empty HTLC script')
+  })
+
+  it('rejects invalid output address length', () => {
+    expect(() =>
+      buildBuyerRefundTx({
+        fundingTxID: new Uint8Array(32),
+        fundingVout: 0,
+        fundingAmount: 50000n,
+        htlcScript,
+        buyerPrivKey: buyerPriv,
+        outputAddr: new Uint8Array(10), // wrong length
+        timeout: DEFAULT_HTLC_TIMEOUT,
+      }),
+    ).toThrow(`output address must be ${PUB_KEY_HASH_LEN} bytes`)
+  })
+
+  it('rejects zero funding amount', () => {
+    expect(() =>
+      buildBuyerRefundTx({
+        fundingTxID: new Uint8Array(32),
+        fundingVout: 0,
+        fundingAmount: 0n,
+        htlcScript,
+        buyerPrivKey: buyerPriv,
+        outputAddr: buyerPKH,
+        timeout: DEFAULT_HTLC_TIMEOUT,
+      }),
+    ).toThrow('funding amount must be greater than zero')
+  })
+
+  it('rejects funding amount too small for fee', () => {
+    expect(() =>
+      buildBuyerRefundTx({
+        fundingTxID: new Uint8Array(32),
+        fundingVout: 0,
+        fundingAmount: 100n, // too small for any fee
+        htlcScript,
+        buyerPrivKey: buyerPriv,
+        outputAddr: buyerPKH,
+        timeout: DEFAULT_HTLC_TIMEOUT,
+      }),
+    ).toThrow('too small for fee')
+  })
+
+  it('rejects timeout below minimum', () => {
+    expect(() =>
+      buildBuyerRefundTx({
+        fundingTxID: new Uint8Array(32),
+        fundingVout: 0,
+        fundingAmount: 50000n,
+        htlcScript,
+        buyerPrivKey: buyerPriv,
+        outputAddr: buyerPKH,
+        timeout: 1, // below MinHTLCTimeout
+      }),
+    ).toThrow('below minimum')
+  })
+
+  it('rejects timeout above maximum', () => {
+    expect(() =>
+      buildBuyerRefundTx({
+        fundingTxID: new Uint8Array(32),
+        fundingVout: 0,
+        fundingAmount: 50000n,
+        htlcScript,
+        buyerPrivKey: buyerPriv,
+        outputAddr: buyerPKH,
+        timeout: 999999, // above MaxHTLCTimeout
+      }),
+    ).toThrow('exceeds maximum')
   })
 })

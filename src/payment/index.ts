@@ -24,8 +24,6 @@ export type {
   HTLCFundingParams,
   HTLCFundingResult,
   SellerClaimParams,
-  SellerPreSignParams,
-  SellerPreSignResult,
   BuyerRefundParams,
   PaymentHeaders,
   PaymentProof,
@@ -76,10 +74,9 @@ export {
   paymentHeadersToHeaders,
 } from './headers.js'
 
-// Refund (pre-signed 2-of-2 multisig)
+// Refund (on-chain buyer-only via OP_PUSH_TX + nLockTime)
 export {
   verifyHTLCFunding,
-  buildSellerPreSignedRefund,
   buildBuyerRefundTx,
 } from './refund.js'
 
