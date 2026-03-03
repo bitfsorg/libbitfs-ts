@@ -8,6 +8,7 @@ import {
   TransactionSignature,
   Hash,
 } from '@bsv/sdk'
+
 import type { PrivateKey } from '@bsv/sdk'
 import type {
   HTLCParams,
@@ -33,8 +34,8 @@ import {
 import { computeCapsuleHash } from '../method42/capsule.js'
 import { timingSafeEqual, toHex } from '../util.js'
 import {
-  instantiateHTLC,
-  isArtifactScript,
+  buildHTLCScript,
+  isHTLCScript,
   HTLC_INVOICE_ID_OFFSET,
   HTLC_CAPSULE_HASH_OFFSET,
   HTLC_MIN_SCRIPT_LEN,
@@ -45,10 +46,9 @@ import {
 // ---------------------------------------------------------------------------
 
 /**
- * Constructs an HTLC locking script by instantiating the compiled sCrypt
- * BitfsHTLC artifact. The artifact encodes both the seller-claim path
- * (hash-lock + P2PKH) and the buyer-refund path (OP_PUSH_TX + nLockTime
- * CLTV) in a single script. Constructor parameters embedded:
+ * Constructs a plain Bitcoin Script HTLC locking script. The script encodes
+ * both the seller-claim path (hash-lock + P2PKH) and the buyer-refund path
+ * (P2PKH) in a single script. Parameters embedded:
  *
  *   - invoiceId   -- 16-byte replay protection token (mandatory)
  *   - capsuleHash -- SHA256(capsule), 32 bytes
@@ -57,7 +57,7 @@ import {
  *   - timeout     -- refund timeout in blocks
  *
  * The seller claims by providing the capsule preimage and their signature.
- * The buyer refunds on-chain after timeout using OP_PUSH_TX to verify nLockTime.
+ * The buyer refunds on-chain after timeout via nLockTime (transaction-level).
  */
 export function buildHTLC(params: HTLCParams): Uint8Array {
   if (params == null) {
@@ -103,12 +103,11 @@ export function buildHTLC(params: HTLCParams): Uint8Array {
   // Derive buyer PKH from buyer public key.
   const buyerPkh = Uint8Array.from(Hash.hash160(Array.from(params.buyerPubKey)))
 
-  return instantiateHTLC(
+  return buildHTLCScript(
     params.invoiceID,
     params.capsuleHash,
     params.sellerPubKeyHash,
     buyerPkh,
-    params.timeoutBlocks,
   )
 }
 
@@ -117,31 +116,29 @@ export function buildHTLC(params: HTLCParams): Uint8Array {
 // ---------------------------------------------------------------------------
 
 /**
- * Extracts the 32-byte capsule hash embedded in an HTLC locking script
- * produced by the sCrypt BitfsHTLC artifact. Uses fixed byte offsets
- * determined by the compiled artifact layout.
+ * Extracts the 32-byte capsule hash embedded in an HTLC locking script.
+ * Uses fixed byte offsets determined by the plain Bitcoin Script HTLC layout.
  */
 export function extractCapsuleHashFromHTLC(scriptBytes: Uint8Array): Uint8Array {
   if (scriptBytes.length < HTLC_MIN_SCRIPT_LEN) {
     throw new Error(`HTLC script too short: ${scriptBytes.length} bytes`)
   }
-  if (!isArtifactScript(scriptBytes)) {
-    throw new Error('HTLC script does not match sCrypt artifact prefix')
+  if (!isHTLCScript(scriptBytes)) {
+    throw new Error('HTLC script does not match HTLC script format')
   }
   return scriptBytes.slice(HTLC_CAPSULE_HASH_OFFSET, HTLC_CAPSULE_HASH_OFFSET + CAPSULE_HASH_LEN)
 }
 
 /**
- * Extracts the 16-byte invoice ID embedded in an HTLC locking script
- * produced by the sCrypt BitfsHTLC artifact. Returns null if the script
- * does not match the expected artifact format.
+ * Extracts the 16-byte invoice ID embedded in an HTLC locking script.
+ * Returns null if the script does not match the expected HTLC format.
  */
 export function extractInvoiceIDFromHTLC(scriptBytes: Uint8Array): Uint8Array | null {
   if (scriptBytes.length < HTLC_MIN_SCRIPT_LEN) {
-    return null // Too short; cannot be an artifact script.
+    return null // Too short; cannot be an HTLC script.
   }
-  if (!isArtifactScript(scriptBytes)) {
-    return null // Not an artifact script.
+  if (!isHTLCScript(scriptBytes)) {
+    return null // Not an HTLC script.
   }
   return scriptBytes.slice(HTLC_INVOICE_ID_OFFSET, HTLC_INVOICE_ID_OFFSET + INVOICE_ID_LEN)
 }
@@ -299,10 +296,13 @@ export async function buildHTLCFundingTx(params: HTLCFundingParams): Promise<HTL
 
 /**
  * Creates a signed transaction spending the HTLC via the seller claim path.
- * For the sCrypt artifact, the unlocking script for claim (method index 0) is:
- *   <capsule> <sig+flag> <seller_pubkey> OP_0
+ * The unlocking script for the claim (IF branch) is:
+ *   <sig> <pubkey> <fileTxID||capsule> OP_TRUE
  *
- * Where OP_0 selects the claim method (index 0).
+ * OP_TRUE selects the IF branch (hash-lock + P2PKH).
+ * The preimage is fileTxID (32 bytes) || capsule (32 bytes) = 64 bytes.
+ * The locking script does OP_SHA256(preimage) and checks against
+ * capsuleHash = SHA256(fileTxID || capsule).
  *
  * @returns Serialized signed transaction bytes.
  */
@@ -322,6 +322,9 @@ export async function buildSellerClaimTx(params: SellerClaimParams): Promise<Uin
   if (params.capsule.length === 0) {
     throw new Error(`${ErrInvalidParams().message}: empty capsule`)
   }
+  if (params.fileTxID.length !== 32) {
+    throw new Error(`${ErrInvalidParams().message}: fileTxID must be 32 bytes, got ${params.fileTxID.length}`)
+  }
   if (params.outputAddr.length !== PUB_KEY_HASH_LEN) {
     throw new Error(`${ErrInvalidParams().message}: output address must be ${PUB_KEY_HASH_LEN} bytes`)
   }
@@ -335,8 +338,8 @@ export async function buildSellerClaimTx(params: SellerClaimParams): Promise<Uin
 
   const feeRate = params.feeRate > 0 ? params.feeRate : DEFAULT_HTLC_FEE_RATE
 
-  // Estimate claim tx size: ~10 overhead + ~(73+33+32+1) unlocking + script + ~40 output.
-  const estSize = 10 + 73 + 33 + 32 + 1 + params.htlcScript.length + 40
+  // Estimate claim tx size: ~10 overhead + ~(73+33+64+1) unlocking + script + ~40 output.
+  const estSize = 10 + 73 + 33 + 64 + 1 + params.htlcScript.length + 40
   const estFee = BigInt(estSize) * BigInt(feeRate)
 
   if (params.fundingAmount <= estFee) {
@@ -399,17 +402,24 @@ export async function buildSellerClaimTx(params: SellerClaimParams): Promise<Uin
   const sigHash = Hash.hash256(preimage)
   const sig = params.sellerPrivKey.sign(sigHash)
 
-  // Build unlocking script for sCrypt claim path:
-  // <capsule> <sig+flag> <seller_pubkey> OP_0
-  // OP_0 is the method selector (claim has index 0).
+  // Build unlocking script for claim path (IF branch):
+  // <sig> <pubkey> <fileTxID||capsule> OP_TRUE
+  // OP_TRUE selects the IF branch.
   const sigBytes: number[] = [...(sig.toDER() as number[]), scope & 0xff]
   const sellerPubKey = params.sellerPrivKey.toPublicKey().toDER() as number[]
 
+  // Preimage is fileTxID (32 bytes) || capsule (32 bytes) = 64 bytes.
+  // The locking script does OP_SHA256(preimage) and checks against
+  // capsuleHash = SHA256(fileTxID || capsule).
+  const claimPreimage = new Uint8Array(64)
+  claimPreimage.set(params.fileTxID, 0)
+  claimPreimage.set(params.capsule, 32)
+
   const unlockScript = new Script()
-  unlockScript.writeBin(Array.from(params.capsule))
   unlockScript.writeBin(sigBytes)
   unlockScript.writeBin(sellerPubKey)
-  unlockScript.writeOpCode(OP.OP_0)
+  unlockScript.writeBin(Array.from(claimPreimage))
+  unlockScript.writeOpCode(OP.OP_1)
 
   tx.inputs[0].unlockingScript = UnlockingScript.fromBinary(unlockScript.toBinary())
 

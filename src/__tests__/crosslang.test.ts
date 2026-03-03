@@ -155,7 +155,12 @@ describe('cross-language: spv', () => {
 })
 
 describe('cross-language: payment_htlc (Go vectors)', () => {
-  it('buildHTLC produces identical script to Go', () => {
+  // NOTE: Go vectors still contain the old sCrypt artifact HTLC format.
+  // These tests verify that the same input parameters produce a valid
+  // plain Bitcoin Script HTLC, and that extraction works on the new format.
+  // Once libbitfs-go is updated, regenerate vectors and compare script_hex.
+
+  it('buildHTLC produces valid HTLC script from Go vector inputs', () => {
     const v = (vectors as Record<string, any>).payment_htlc
     if (!v) {
       // Skip if Go vectors do not include payment_htlc yet.
@@ -173,24 +178,51 @@ describe('cross-language: payment_htlc (Go vectors)', () => {
     }
 
     const script = buildHTLC(params)
-    expect(bytesToHex(script)).toBe(v.script_hex)
+    // Script is now plain Bitcoin Script, not sCrypt artifact.
+    // Verify extraction works with the new format.
+    const extractedInvoice = extractInvoiceIDFromHTLC(script)
+    expect(extractedInvoice).not.toBeNull()
+    expect(bytesToHex(extractedInvoice!)).toBe(v.extracted_invoice_hex)
+
+    const extractedHash = extractCapsuleHashFromHTLC(script)
+    expect(bytesToHex(extractedHash)).toBe(v.extracted_hash_hex)
   })
 
-  it('extractInvoiceIDFromHTLC matches Go extraction', () => {
+  it('extractInvoiceIDFromHTLC from TS-built script matches Go vector inputs', () => {
     const v = (vectors as Record<string, any>).payment_htlc
     if (!v) return
 
-    const script = hexToBytes(v.script_hex)
+    const params: HTLCParams = {
+      buyerPubKey: hexToBytes(v.buyer_pubkey_hex),
+      sellerPubKey: hexToBytes(v.seller_pubkey_hex),
+      sellerPubKeyHash: hexToBytes(v.seller_pubkey_hash_hex),
+      capsuleHash: hexToBytes(v.capsule_hash_hex),
+      amount: BigInt(v.amount),
+      timeoutBlocks: v.timeout_blocks,
+      invoiceID: hexToBytes(v.invoice_id_hex),
+    }
+
+    const script = buildHTLC(params)
     const invoiceID = extractInvoiceIDFromHTLC(script)
     expect(invoiceID).not.toBeNull()
     expect(bytesToHex(invoiceID!)).toBe(v.extracted_invoice_hex)
   })
 
-  it('extractCapsuleHashFromHTLC matches Go extraction', () => {
+  it('extractCapsuleHashFromHTLC from TS-built script matches Go vector inputs', () => {
     const v = (vectors as Record<string, any>).payment_htlc
     if (!v) return
 
-    const script = hexToBytes(v.script_hex)
+    const params: HTLCParams = {
+      buyerPubKey: hexToBytes(v.buyer_pubkey_hex),
+      sellerPubKey: hexToBytes(v.seller_pubkey_hex),
+      sellerPubKeyHash: hexToBytes(v.seller_pubkey_hash_hex),
+      capsuleHash: hexToBytes(v.capsule_hash_hex),
+      amount: BigInt(v.amount),
+      timeoutBlocks: v.timeout_blocks,
+      invoiceID: hexToBytes(v.invoice_id_hex),
+    }
+
+    const script = buildHTLC(params)
     const capsuleHash = extractCapsuleHashFromHTLC(script)
     expect(bytesToHex(capsuleHash)).toBe(v.extracted_hash_hex)
   })
@@ -577,7 +609,7 @@ describe('cross-language: storage_compress_lzw', () => {
 })
 
 describe('cross-language: payment_htlc_script', () => {
-  it('buildHTLC produces deterministic sCrypt artifact script', () => {
+  it('buildHTLC produces deterministic plain Bitcoin Script HTLC', () => {
     const invoiceID = hexToBytes('aabbccddeeff00112233445566778899')
     const params: HTLCParams = {
       buyerPubKey: hexToBytes('030000000000000000000000000000000000000000000000000000000000000001'),
@@ -601,7 +633,7 @@ describe('cross-language: payment_htlc_script', () => {
     const extractedHash = extractCapsuleHashFromHTLC(script)
     expect(bytesToHex(extractedHash)).toBe(bytesToHex(params.capsuleHash))
 
-    // Regression vector for sCrypt artifact script
+    // Regression vector for plain Bitcoin Script HTLC
     expect(bytesToHex(script)).toMatchSnapshot()
   })
 

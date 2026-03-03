@@ -39,14 +39,18 @@ export {
   DEFAULT_HTLC_FEE_RATE,
 } from './types.js'
 
-// Artifact (sCrypt compiled contract)
-export { loadArtifact, instantiateHTLC, isArtifactScript, encodeScryptInt } from './artifact.js'
-export type { Artifact, ABIEntity } from './artifact.js'
+// HTLC script (plain Bitcoin Script)
+export {
+  buildHTLCScript,
+  isHTLCScript,
+  encodeScriptNum,
+  instantiateHTLC,    // @deprecated backward compat alias for buildHTLCScript
+  isArtifactScript,   // @deprecated backward compat alias for isHTLCScript
+} from './artifact.js'
 export {
   HTLC_INVOICE_ID_OFFSET,
   HTLC_CAPSULE_HASH_OFFSET,
   HTLC_SELLER_PKH_OFFSET,
-  HTLC_BUYER_PKH_OFFSET,
   HTLC_MIN_SCRIPT_LEN,
 } from './artifact.js'
 
@@ -74,7 +78,7 @@ export {
   paymentHeadersToHeaders,
 } from './headers.js'
 
-// Refund (on-chain buyer-only via OP_PUSH_TX + nLockTime)
+// Refund (on-chain buyer-only via nLockTime)
 export {
   verifyHTLCFunding,
   buildBuyerRefundTx,

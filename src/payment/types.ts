@@ -196,14 +196,14 @@ export interface PaymentProof {
 }
 
 // ---------------------------------------------------------------------------
-// Refund (on-chain buyer-only via OP_PUSH_TX + nLockTime)
+// Refund (on-chain buyer-only via nLockTime)
 // ---------------------------------------------------------------------------
 
 /**
  * BuyerRefundParams holds parameters for building an on-chain refund transaction.
  * The buyer can refund unilaterally after the timeout -- no seller cooperation needed.
- * The sCrypt contract's refund() method uses this.timeLock() which verifies
- * nLockTime via OP_PUSH_TX (BIP143 sighash preimage).
+ * The timeout is enforced at the transaction level via nLockTime (not in the
+ * script — BSV post-Genesis treats OP_CLTV as OP_NOP2).
  */
 export interface BuyerRefundParams {
   /** 32-byte HTLC funding tx hash. */

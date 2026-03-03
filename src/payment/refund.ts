@@ -8,6 +8,7 @@ import {
   TransactionSignature,
   Hash,
 } from '@bsv/sdk'
+
 import type { BuyerRefundParams } from './types.js'
 import {
   DEFAULT_HTLC_TIMEOUT,
@@ -84,13 +85,13 @@ export function verifyHTLCFunding(
  * unilaterally after the timeout -- no seller cooperation is needed.
  *
  * The transaction sets nLockTime = params.timeout and sequence = 0xfffffffe to
- * enable nLockTime enforcement. The unlocking script format matches the sCrypt
- * refund() ABI (index 1):
+ * enable nLockTime enforcement. The unlocking script for the ELSE branch is:
  *
- *   <sig> <pubkey> <sighash_preimage> OP_1
+ *   <sig> <pubkey> OP_FALSE
  *
- * Where OP_1 selects the refund method (index 1), and the sighash preimage is
- * the BIP143 preimage that the contract verifies via OP_PUSH_TX.
+ * OP_FALSE selects the ELSE branch. The timelock is enforced at the
+ * transaction level via nLockTime (not in the script — BSV post-Genesis
+ * treats OP_CLTV as OP_NOP2 and rejects it with DISCOURAGE_UPGRADABLE_NOPS).
  *
  * @returns Serialized signed refund transaction bytes.
  */
@@ -133,10 +134,9 @@ export function buildBuyerRefundTx(params: BuyerRefundParams): Uint8Array {
 
   const feeRate = (params.feeRate != null && params.feeRate > 0) ? params.feeRate : DEFAULT_HTLC_FEE_RATE
 
-  // Estimate refund tx size: ~10 overhead + ~(73 + 33 + preimage ~200 + 1)
-  // unlocking + script + ~40 output. The BIP143 sighash preimage is typically
-  // ~180 bytes; we use 200 as conservative estimate.
-  const estSize = 10 + 73 + 33 + 200 + 1 + params.htlcScript.length + 40
+  // Estimate refund tx size: ~10 overhead + ~(73 + 33 + 1) unlocking
+  // + script + ~40 output. No sighash preimage needed for plain script HTLC.
+  const estSize = 10 + 73 + 33 + 1 + params.htlcScript.length + 40
   const estFee = BigInt(estSize) * BigInt(feeRate)
 
   if (params.fundingAmount <= estFee) {
@@ -181,7 +181,7 @@ export function buildBuyerRefundTx(params: BuyerRefundParams): Uint8Array {
     satoshis: Number(outputAmount),
   })
 
-  // Compute BIP143 sighash preimage (used by sCrypt's OP_PUSH_TX).
+  // Compute sighash and sign with buyer's key.
   const scope = TransactionSignature.SIGHASH_ALL | TransactionSignature.SIGHASH_FORKID
 
   const preimage = TransactionSignature.format({
@@ -198,7 +198,6 @@ export function buildBuyerRefundTx(params: BuyerRefundParams): Uint8Array {
     scope,
   })
 
-  // Compute sighash and sign with buyer's key.
   const sigHash = Hash.hash256(preimage)
   const sig = params.buyerPrivKey.sign(sigHash)
 
@@ -206,13 +205,13 @@ export function buildBuyerRefundTx(params: BuyerRefundParams): Uint8Array {
   const buyerSigBytes: number[] = [...derBytes, scope & 0xff]
   const buyerPubKey = params.buyerPrivKey.toPublicKey().toDER() as number[]
 
-  // Build unlocking script for sCrypt refund() method (index 1):
-  //   <sig> <pubkey> <sighash_preimage> OP_1
+  // Build unlocking script for refund (ELSE branch):
+  //   <sig> <pubkey> OP_FALSE
+  // OP_FALSE selects the ELSE branch; timeout enforced by nLockTime.
   const unlockScript = new Script()
   unlockScript.writeBin(buyerSigBytes)
   unlockScript.writeBin(buyerPubKey)
-  unlockScript.writeBin(Array.from(preimage))
-  unlockScript.writeOpCode(OP.OP_1)
+  unlockScript.writeOpCode(OP.OP_0)
 
   tx.inputs[0].unlockingScript = UnlockingScript.fromBinary(unlockScript.toBinary())
 

@@ -173,11 +173,11 @@ describe('buildBuyerRefundTx (on-chain buyer-only)', () => {
     expect(outputAmount).toBeGreaterThan(0n)
     expect(outputAmount).toBeLessThan(50000n) // Less due to fee.
 
-    // Unlocking script should have 4 chunks: <sig> <pubkey> <preimage> OP_1
+    // Unlocking script should have 3 chunks: <sig> <pubkey> OP_FALSE
     const unlockingScript = refundTx.inputs[0].unlockingScript
     expect(unlockingScript).toBeDefined()
     const chunks = unlockingScript!.chunks
-    expect(chunks.length).toBe(4)
+    expect(chunks.length).toBe(3)
 
     // Chunk 0: buyer signature (push data).
     expect(chunks[0].data).toBeDefined()
@@ -187,12 +187,8 @@ describe('buildBuyerRefundTx (on-chain buyer-only)', () => {
     expect(chunks[1].data).toBeDefined()
     expect(chunks[1].data!.length).toBe(33)
 
-    // Chunk 2: BIP143 sighash preimage (push data).
-    expect(chunks[2].data).toBeDefined()
-    expect(chunks[2].data!.length).toBeGreaterThan(100) // preimage is ~180 bytes
-
-    // Chunk 3: OP_1 (method selector for refund path).
-    expect(chunks[3].op).toBe(OP.OP_1)
+    // Chunk 2: OP_0/OP_FALSE (selects ELSE branch for refund).
+    expect(chunks[2].op).toBe(OP.OP_0)
   })
 
   it('uses default timeout when 0', () => {

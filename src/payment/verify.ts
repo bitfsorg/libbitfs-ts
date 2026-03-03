@@ -102,20 +102,21 @@ export function verifyPayment(proof: PaymentProof, invoice: Invoice): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Extracts the capsule (preimage) from a spent HTLC input.
- * The spending transaction's unlocking script for the sCrypt claim path is:
+ * Extracts the capsule from a spent HTLC input.
+ * The spending transaction's unlocking script for the claim path is:
  *
- *   <capsule> <sig> <pubkey> OP_0
+ *   <sig> <pubkey> <fileTxID||capsule> OP_TRUE
  *
- * Where OP_0 selects the claim method (index 0).
+ * OP_TRUE selects the IF branch (seller claim).
+ * The preimage is fileTxID (32 bytes) || capsule (32 bytes) = 64 bytes.
  *
- * If expectedCapsuleHash is non-null, verifies SHA256(fileTxID || preimage)
+ * If expectedCapsuleHash is non-null, verifies SHA256(fileTxID || capsule)
  * matches before returning.
  *
  * @param spendingTx Serialized spending transaction.
  * @param expectedCapsuleHash Expected hash (32 bytes), or null to skip verification.
- * @param fileTxID Optional 32-byte file transaction ID for hash binding.
- * @returns The extracted preimage (capsule).
+ * @param fileTxID Optional 32-byte file transaction ID for cross-checking against embedded fileTxID.
+ * @returns The extracted capsule (32 bytes).
  */
 export function parseHTLCPreimage(
   spendingTx: Uint8Array,
@@ -124,10 +125,6 @@ export function parseHTLCPreimage(
 ): Uint8Array {
   if (spendingTx == null || spendingTx.length === 0) {
     throw new Error(`${ErrInvalidPreimage().message}: empty spending transaction`)
-  }
-
-  if (expectedCapsuleHash && !fileTxID) {
-    throw new Error(`${ErrInvalidParams().message}: fileTxID required when expectedCapsuleHash is provided`)
   }
 
   let tx: Transaction
@@ -148,35 +145,45 @@ export function parseHTLCPreimage(
       continue
     }
 
-    // sCrypt claim unlocking script: <capsule> <sig> <pubkey> OP_0
+    // Claim unlocking script: <sig> <pubkey> <fileTxID||capsule> OP_TRUE
     // We expect exactly 4 chunks.
     if (chunks.length < 4) {
       continue
     }
 
-    // The last chunk should be OP_0/OP_FALSE (0x00) selecting claim method (index 0).
+    // The last chunk should be OP_TRUE/OP_1 (0x51) selecting the IF branch.
     const lastChunk = chunks[chunks.length - 1]
-    if (lastChunk.op !== OP.OP_0 && lastChunk.op !== OP.OP_FALSE) {
+    if (lastChunk.op !== OP.OP_1 && lastChunk.op !== OP.OP_TRUE) {
       continue
     }
 
-    // The capsule preimage is the first element (chunks[0]).
-    const preimageChunk = chunks[0]
-    if (preimageChunk.data == null || preimageChunk.data.length === 0) {
-      continue
+    // The preimage is at chunks[2] (third element): fileTxID (32) || capsule (32) = 64 bytes.
+    const preimageChunk = chunks[2]
+    if (preimageChunk.data == null || preimageChunk.data.length < 64) {
+      continue // preimage must be fileTxID (32) + capsule (32)
     }
 
-    const preimage = Uint8Array.from(preimageChunk.data)
+    const preimageData = Uint8Array.from(preimageChunk.data)
+    const preimageFileTxID = preimageData.slice(0, 32)
+    const capsule = preimageData.slice(32, 64)
 
-    // Verify hash if expected hash provided.
-    if (expectedCapsuleHash != null) {
-      const h = computeCapsuleHash(fileTxID ?? new Uint8Array(0), preimage)
-      if (h == null || !timingSafeEqual(h, expectedCapsuleHash)) {
-        continue // Hash mismatch - try next input.
+    // Optionally verify fileTxID matches.
+    if (fileTxID != null && fileTxID.length > 0) {
+      if (!timingSafeEqual(preimageFileTxID, fileTxID)) {
+        continue
       }
     }
 
-    return preimage
+    // Verify hash if expected hash provided.
+    // capsuleHash = SHA256(fileTxID || capsule)
+    if (expectedCapsuleHash != null) {
+      const h = computeCapsuleHash(preimageFileTxID, capsule)
+      if (h == null || !timingSafeEqual(h, expectedCapsuleHash)) {
+        continue
+      }
+    }
+
+    return capsule
   }
 
   throw new Error(`${ErrInvalidPreimage().message}: no HTLC preimage found in transaction inputs`)
