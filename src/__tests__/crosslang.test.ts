@@ -154,9 +154,53 @@ describe('cross-language: spv', () => {
   })
 })
 
+describe('cross-language: payment_htlc (Go vectors)', () => {
+  it('buildHTLC produces identical script to Go', () => {
+    const v = (vectors as Record<string, any>).payment_htlc
+    if (!v) {
+      // Skip if Go vectors do not include payment_htlc yet.
+      return
+    }
+
+    const params: HTLCParams = {
+      buyerPubKey: hexToBytes(v.buyer_pubkey_hex),
+      sellerPubKey: hexToBytes(v.seller_pubkey_hex),
+      sellerPubKeyHash: hexToBytes(v.seller_pubkey_hash_hex),
+      capsuleHash: hexToBytes(v.capsule_hash_hex),
+      amount: BigInt(v.amount),
+      timeoutBlocks: v.timeout_blocks,
+      invoiceID: hexToBytes(v.invoice_id_hex),
+    }
+
+    const script = buildHTLC(params)
+    expect(bytesToHex(script)).toBe(v.script_hex)
+  })
+
+  it('extractInvoiceIDFromHTLC matches Go extraction', () => {
+    const v = (vectors as Record<string, any>).payment_htlc
+    if (!v) return
+
+    const script = hexToBytes(v.script_hex)
+    const invoiceID = extractInvoiceIDFromHTLC(script)
+    expect(invoiceID).not.toBeNull()
+    expect(bytesToHex(invoiceID!)).toBe(v.extracted_invoice_hex)
+  })
+
+  it('extractCapsuleHashFromHTLC matches Go extraction', () => {
+    const v = (vectors as Record<string, any>).payment_htlc
+    if (!v) return
+
+    const script = hexToBytes(v.script_hex)
+    const capsuleHash = extractCapsuleHashFromHTLC(script)
+    expect(bytesToHex(capsuleHash)).toBe(v.extracted_hash_hex)
+  })
+})
+
 // ===========================================================================
-// NEW: Regression test vectors (TS-generated, hardcoded for stability)
-// These cover the 8 areas not yet in the Go-generated vector file.
+// Regression test vectors (TS-generated, hardcoded for stability)
+// These cover areas where deterministic byte-level comparison with Go
+// vectors is not possible (e.g. encrypt uses random nonce) or provides
+// additional coverage beyond the Go-generated vector file.
 // ===========================================================================
 
 describe('cross-language: method42_encrypt (round-trip)', () => {
