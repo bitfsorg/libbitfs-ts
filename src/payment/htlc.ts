@@ -32,38 +32,45 @@ import {
 } from './errors.js'
 import { computeCapsuleHash } from '../method42/capsule.js'
 import { timingSafeEqual, toHex } from '../util.js'
+import {
+  instantiateHTLC,
+  isArtifactScript,
+  HTLC_INVOICE_ID_OFFSET,
+  HTLC_CAPSULE_HASH_OFFSET,
+  HTLC_MIN_SCRIPT_LEN,
+} from './artifact.js'
 
 // ---------------------------------------------------------------------------
 // HTLC script building
 // ---------------------------------------------------------------------------
 
 /**
- * Constructs an HTLC locking script. When InvoiceID is provided,
- * the script is prefixed with <invoice_id_16> OP_DROP for replay protection,
- * binding the HTLC to a specific invoice:
+ * Constructs an HTLC locking script by instantiating the compiled sCrypt
+ * BitfsHTLC artifact. The artifact encodes both the seller-claim path
+ * (hash-lock + P2PKH) and the buyer-refund path (OP_PUSH_TX + nLockTime
+ * CLTV) in a single script. Constructor parameters embedded:
  *
- *   [<invoice_id_16> OP_DROP]   // optional, present when invoiceID is non-empty
- *   OP_IF
- *     // Seller claim: reveal capsule + seller sig (P2PKH-style)
- *     OP_SHA256 <capsule_hash> OP_EQUALVERIFY
- *     OP_DUP OP_HASH160 <seller_pkh> OP_EQUALVERIFY OP_CHECKSIG
- *   OP_ELSE
- *     // Buyer refund: 2-of-2 multisig (spent via pre-signed refund tx)
- *     OP_2 <buyer_pubkey> <seller_pubkey> OP_2 OP_CHECKMULTISIG
- *   OP_ENDIF
+ *   - invoiceId   -- 16-byte replay protection token (mandatory)
+ *   - capsuleHash -- SHA256(capsule), 32 bytes
+ *   - sellerPkh   -- HASH160(seller public key), 20 bytes
+ *   - buyerPkh    -- HASH160(buyer public key), 20 bytes
+ *   - timeout     -- refund timeout in blocks
+ *
+ * The seller claims by providing the capsule preimage and their signature.
+ * The buyer refunds on-chain after timeout using OP_PUSH_TX to verify nLockTime.
  */
 export function buildHTLC(params: HTLCParams): Uint8Array {
   if (params == null) {
     throw new Error(`${ErrHTLCBuildFailed().message}: nil params`)
   }
+  if (params.invoiceID.length !== INVOICE_ID_LEN) {
+    throw new Error(
+      `${ErrHTLCBuildFailed().message}: invoiceID is mandatory (${INVOICE_ID_LEN} bytes), got ${params.invoiceID.length}`,
+    )
+  }
   if (params.buyerPubKey.length !== COMPRESSED_PUB_KEY_LEN) {
     throw new Error(
       `${ErrHTLCBuildFailed().message}: buyer pubkey must be ${COMPRESSED_PUB_KEY_LEN} bytes, got ${params.buyerPubKey.length}`,
-    )
-  }
-  if (params.sellerPubKey.length !== COMPRESSED_PUB_KEY_LEN) {
-    throw new Error(
-      `${ErrHTLCBuildFailed().message}: seller pubkey must be ${COMPRESSED_PUB_KEY_LEN} bytes, got ${params.sellerPubKey.length}`,
     )
   }
   if (params.sellerPubKeyHash.length !== PUB_KEY_HASH_LEN) {
@@ -92,49 +99,17 @@ export function buildHTLC(params: HTLCParams): Uint8Array {
       `${ErrHTLCBuildFailed().message}: timeout ${params.timeoutBlocks} exceeds maximum ${MAX_HTLC_TIMEOUT} blocks`,
     )
   }
-  if (params.invoiceID != null && params.invoiceID.length > 0 && params.invoiceID.length !== INVOICE_ID_LEN) {
-    throw new Error(
-      `${ErrHTLCBuildFailed().message}: invoice ID must be ${INVOICE_ID_LEN} bytes, got ${params.invoiceID.length}`,
-    )
-  }
 
-  const s = new Script()
+  // Derive buyer PKH from buyer public key.
+  const buyerPkh = Uint8Array.from(Hash.hash160(Array.from(params.buyerPubKey)))
 
-  // Optional replay protection prefix: <invoice_id_16> OP_DROP
-  if (params.invoiceID != null && params.invoiceID.length === INVOICE_ID_LEN) {
-    s.writeBin(Array.from(params.invoiceID))
-    s.writeOpCode(OP.OP_DROP)
-  }
-
-  // OP_IF
-  s.writeOpCode(OP.OP_IF)
-
-  // Seller claim path: OP_SHA256 <capsule_hash> OP_EQUALVERIFY
-  s.writeOpCode(OP.OP_SHA256)
-  s.writeBin(Array.from(params.capsuleHash))
-  s.writeOpCode(OP.OP_EQUALVERIFY)
-
-  // Seller verification: OP_DUP OP_HASH160 <seller_pkh> OP_EQUALVERIFY OP_CHECKSIG
-  s.writeOpCode(OP.OP_DUP)
-  s.writeOpCode(OP.OP_HASH160)
-  s.writeBin(Array.from(params.sellerPubKeyHash))
-  s.writeOpCode(OP.OP_EQUALVERIFY)
-  s.writeOpCode(OP.OP_CHECKSIG)
-
-  // OP_ELSE
-  s.writeOpCode(OP.OP_ELSE)
-
-  // Buyer refund path: OP_2 <buyer_pubkey> <seller_pubkey> OP_2 OP_CHECKMULTISIG
-  s.writeOpCode(OP.OP_2)
-  s.writeBin(Array.from(params.buyerPubKey))
-  s.writeBin(Array.from(params.sellerPubKey))
-  s.writeOpCode(OP.OP_2)
-  s.writeOpCode(OP.OP_CHECKMULTISIG)
-
-  // OP_ENDIF
-  s.writeOpCode(OP.OP_ENDIF)
-
-  return Uint8Array.from(s.toBinary())
+  return instantiateHTLC(
+    params.invoiceID,
+    params.capsuleHash,
+    params.sellerPubKeyHash,
+    buyerPkh,
+    params.timeoutBlocks,
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -142,53 +117,33 @@ export function buildHTLC(params: HTLCParams): Uint8Array {
 // ---------------------------------------------------------------------------
 
 /**
- * Extracts the capsule hash embedded in an HTLC locking script.
- * Supports both formats:
- *   - Legacy:  OP_IF OP_SHA256 <capsule_hash_32> OP_EQUALVERIFY ...
- *   - With ID: <invoice_id_16> OP_DROP OP_IF OP_SHA256 <capsule_hash_32> OP_EQUALVERIFY ...
+ * Extracts the 32-byte capsule hash embedded in an HTLC locking script
+ * produced by the sCrypt BitfsHTLC artifact. Uses fixed byte offsets
+ * determined by the compiled artifact layout.
  */
 export function extractCapsuleHashFromHTLC(scriptBytes: Uint8Array): Uint8Array {
-  const s = Script.fromBinary(Array.from(scriptBytes))
-  const chunks = s.chunks
-
-  const offset = htlcInvoiceIDOffset(chunks)
-
-  if (chunks.length < offset + 3) {
-    throw new Error(`HTLC script too short: ${chunks.length} chunks`)
+  if (scriptBytes.length < HTLC_MIN_SCRIPT_LEN) {
+    throw new Error(`HTLC script too short: ${scriptBytes.length} bytes`)
   }
-  if (chunks[offset].op !== OP.OP_IF) {
-    throw new Error(`expected OP_IF at position ${offset}, got 0x${chunks[offset].op.toString(16).padStart(2, '0')}`)
+  if (!isArtifactScript(scriptBytes)) {
+    throw new Error('HTLC script does not match sCrypt artifact prefix')
   }
-  if (chunks[offset + 1].op !== OP.OP_SHA256) {
-    throw new Error(
-      `expected OP_SHA256 at position ${offset + 1}, got 0x${chunks[offset + 1].op.toString(16).padStart(2, '0')}`,
-    )
-  }
-  const hashData = chunks[offset + 2].data
-  if (hashData == null || hashData.length !== CAPSULE_HASH_LEN) {
-    throw new Error(
-      `capsule hash must be ${CAPSULE_HASH_LEN} bytes, got ${hashData?.length ?? 0}`,
-    )
-  }
-  return Uint8Array.from(hashData)
+  return scriptBytes.slice(HTLC_CAPSULE_HASH_OFFSET, HTLC_CAPSULE_HASH_OFFSET + CAPSULE_HASH_LEN)
 }
 
 /**
- * Extracts the invoice ID from an HTLC locking script, if present.
- * Returns null if the script uses the legacy format without an invoice ID prefix.
+ * Extracts the 16-byte invoice ID embedded in an HTLC locking script
+ * produced by the sCrypt BitfsHTLC artifact. Returns null if the script
+ * does not match the expected artifact format.
  */
 export function extractInvoiceIDFromHTLC(scriptBytes: Uint8Array): Uint8Array | null {
-  const s = Script.fromBinary(Array.from(scriptBytes))
-  const chunks = s.chunks
-
-  if (chunks.length < 2) {
-    return null
+  if (scriptBytes.length < HTLC_MIN_SCRIPT_LEN) {
+    return null // Too short; cannot be an artifact script.
   }
-  // Check for <16-byte push data> OP_DROP pattern.
-  if (chunks[0].data != null && chunks[0].data.length === INVOICE_ID_LEN && chunks[1].op === OP.OP_DROP) {
-    return Uint8Array.from(chunks[0].data)
+  if (!isArtifactScript(scriptBytes)) {
+    return null // Not an artifact script.
   }
-  return null
+  return scriptBytes.slice(HTLC_INVOICE_ID_OFFSET, HTLC_INVOICE_ID_OFFSET + INVOICE_ID_LEN)
 }
 
 // ---------------------------------------------------------------------------
@@ -344,7 +299,10 @@ export async function buildHTLCFundingTx(params: HTLCFundingParams): Promise<HTL
 
 /**
  * Creates a signed transaction spending the HTLC via the seller claim path.
- * Unlocking script: <sig+flag> <seller_pubkey> <capsule> OP_TRUE
+ * For the sCrypt artifact, the unlocking script for claim (method index 0) is:
+ *   <capsule> <sig+flag> <seller_pubkey> OP_0
+ *
+ * Where OP_0 selects the claim method (index 0).
  *
  * @returns Serialized signed transaction bytes.
  */
@@ -441,35 +399,19 @@ export async function buildSellerClaimTx(params: SellerClaimParams): Promise<Uin
   const sigHash = Hash.hash256(preimage)
   const sig = params.sellerPrivKey.sign(sigHash)
 
-  // Build unlocking script: <sig+flag> <seller_pubkey> <capsule> OP_TRUE
+  // Build unlocking script for sCrypt claim path:
+  // <capsule> <sig+flag> <seller_pubkey> OP_0
+  // OP_0 is the method selector (claim has index 0).
   const sigBytes: number[] = [...(sig.toDER() as number[]), scope & 0xff]
   const sellerPubKey = params.sellerPrivKey.toPublicKey().toDER() as number[]
 
   const unlockScript = new Script()
+  unlockScript.writeBin(Array.from(params.capsule))
   unlockScript.writeBin(sigBytes)
   unlockScript.writeBin(sellerPubKey)
-  unlockScript.writeBin(Array.from(params.capsule))
-  unlockScript.writeOpCode(OP.OP_TRUE)
+  unlockScript.writeOpCode(OP.OP_0)
 
   tx.inputs[0].unlockingScript = UnlockingScript.fromBinary(unlockScript.toBinary())
 
   return Uint8Array.from(tx.toBinary())
 }
-
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
-
-/** Determine the chunk offset to skip the optional <invoice_id_16> OP_DROP prefix. */
-function htlcInvoiceIDOffset(chunks: Array<{ op: number; data?: number[] }>): number {
-  if (
-    chunks.length >= 2 &&
-    chunks[0].data != null &&
-    chunks[0].data.length === INVOICE_ID_LEN &&
-    chunks[1].op === OP.OP_DROP
-  ) {
-    return 2
-  }
-  return 0
-}
-

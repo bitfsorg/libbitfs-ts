@@ -103,11 +103,11 @@ export function verifyPayment(proof: PaymentProof, invoice: Invoice): string {
 
 /**
  * Extracts the capsule (preimage) from a spent HTLC input.
- * The spending transaction's unlocking script for the seller claim path is:
+ * The spending transaction's unlocking script for the sCrypt claim path is:
  *
- *   <sig> <seller_pubkey> <capsule> OP_TRUE
+ *   <capsule> <sig> <pubkey> OP_0
  *
- * Where OP_TRUE selects the IF branch.
+ * Where OP_0 selects the claim method (index 0).
  *
  * If expectedCapsuleHash is non-null, verifies SHA256(fileTxID || preimage)
  * matches before returning.
@@ -148,20 +148,20 @@ export function parseHTLCPreimage(
       continue
     }
 
-    // Seller claim unlocking script: <sig> <pubkey> <preimage> OP_TRUE
-    // We expect at least 4 chunks.
+    // sCrypt claim unlocking script: <capsule> <sig> <pubkey> OP_0
+    // We expect exactly 4 chunks.
     if (chunks.length < 4) {
       continue
     }
 
-    // The last chunk should be OP_TRUE (0x51) selecting the IF branch.
+    // The last chunk should be OP_0/OP_FALSE (0x00) selecting claim method (index 0).
     const lastChunk = chunks[chunks.length - 1]
-    if (lastChunk.op !== OP.OP_TRUE && lastChunk.op !== OP.OP_1) {
+    if (lastChunk.op !== OP.OP_0 && lastChunk.op !== OP.OP_FALSE) {
       continue
     }
 
-    // The preimage is the second-to-last element (before OP_TRUE).
-    const preimageChunk = chunks[chunks.length - 2]
+    // The capsule preimage is the first element (chunks[0]).
+    const preimageChunk = chunks[0]
     if (preimageChunk.data == null || preimageChunk.data.length === 0) {
       continue
     }

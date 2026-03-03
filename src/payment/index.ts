@@ -41,6 +41,17 @@ export {
   DEFAULT_HTLC_FEE_RATE,
 } from './types.js'
 
+// Artifact (sCrypt compiled contract)
+export { loadArtifact, instantiateHTLC, isArtifactScript, encodeScryptInt } from './artifact.js'
+export type { Artifact, ABIEntity } from './artifact.js'
+export {
+  HTLC_INVOICE_ID_OFFSET,
+  HTLC_CAPSULE_HASH_OFFSET,
+  HTLC_SELLER_PKH_OFFSET,
+  HTLC_BUYER_PKH_OFFSET,
+  HTLC_MIN_SCRIPT_LEN,
+} from './artifact.js'
+
 // Invoice
 export { calculatePrice, newInvoice, isExpired } from './invoice.js'
 

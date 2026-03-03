@@ -84,8 +84,8 @@ export interface HTLCParams {
   amount: bigint
   /** Refund timeout in blocks. Must be in [MIN_HTLC_TIMEOUT, MAX_HTLC_TIMEOUT]. */
   timeoutBlocks: number
-  /** Optional invoice ID for replay protection (16 bytes). If undefined, script omits the prefix. */
-  invoiceID?: Uint8Array
+  /** 16-byte invoice ID for replay protection (mandatory). */
+  invoiceID: Uint8Array
 }
 
 /**
@@ -122,8 +122,8 @@ export interface HTLCFundingParams {
   changeAddr: Uint8Array
   /** Satoshis per byte (0 = use default). */
   feeRate: number
-  /** Optional 16-byte invoice ID for replay protection. */
-  invoiceID?: Uint8Array
+  /** 16-byte invoice ID for replay protection (mandatory). */
+  invoiceID: Uint8Array
 }
 
 /**

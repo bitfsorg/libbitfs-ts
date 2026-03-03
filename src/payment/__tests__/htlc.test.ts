@@ -6,6 +6,17 @@ import {
   extractInvoiceIDFromHTLC,
 } from '../htlc.js'
 import { verifyPayment, parseHTLCPreimage } from '../verify.js'
+import {
+  loadArtifact,
+  instantiateHTLC,
+  isArtifactScript,
+  encodeScryptInt,
+  HTLC_INVOICE_ID_OFFSET,
+  HTLC_CAPSULE_HASH_OFFSET,
+  HTLC_SELLER_PKH_OFFSET,
+  HTLC_BUYER_PKH_OFFSET,
+  HTLC_MIN_SCRIPT_LEN,
+} from '../artifact.js'
 import type { HTLCParams, Invoice, PaymentProof } from '../types.js'
 import {
   DEFAULT_HTLC_TIMEOUT,
@@ -16,6 +27,7 @@ import {
   CAPSULE_HASH_LEN,
   INVOICE_ID_LEN,
 } from '../types.js'
+import { toHex, hexToBytes } from '../../util.js'
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -45,6 +57,12 @@ function makeCapsuleHash(): Uint8Array {
   return Uint8Array.from(Hash.sha256(Array.from(new TextEncoder().encode('test-capsule'))))
 }
 
+function makeInvoiceID(): Uint8Array {
+  const id = new Uint8Array(INVOICE_ID_LEN)
+  for (let i = 0; i < INVOICE_ID_LEN; i++) id[i] = i + 200
+  return id
+}
+
 function validHTLCParams(): HTLCParams {
   return {
     buyerPubKey: makeBuyerPubKey(),
@@ -53,105 +71,233 @@ function validHTLCParams(): HTLCParams {
     capsuleHash: makeCapsuleHash(),
     amount: 1000n,
     timeoutBlocks: DEFAULT_HTLC_TIMEOUT,
+    invoiceID: makeInvoiceID(),
   }
 }
+
+// ---------------------------------------------------------------------------
+// loadArtifact tests
+// ---------------------------------------------------------------------------
+
+describe('loadArtifact', () => {
+  it('returns the embedded artifact with correct structure', () => {
+    const art = loadArtifact()
+    expect(art.hex).toBeTruthy()
+    expect(art.abi.length).toBe(3)
+    expect(art.contract).toBe('BitfsHTLC')
+    expect(art.version).toBe(9)
+
+    // Verify ABI has constructor + 2 methods
+    const hasConstructor = art.abi.some(a => a.type === 'constructor')
+    const hasClaim = art.abi.some(a => a.type === 'function' && a.name === 'claim')
+    const hasRefund = art.abi.some(a => a.type === 'function' && a.name === 'refund')
+    expect(hasConstructor).toBe(true)
+    expect(hasClaim).toBe(true)
+    expect(hasRefund).toBe(true)
+  })
+
+  it('hex template contains all 5 placeholders', () => {
+    const art = loadArtifact()
+    expect(art.hex).toContain('<invoiceId>')
+    expect(art.hex).toContain('<capsuleHash>')
+    expect(art.hex).toContain('<sellerPkh>')
+    expect(art.hex).toContain('<buyerPkh>')
+    expect(art.hex).toContain('<timeout>')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// instantiateHTLC tests
+// ---------------------------------------------------------------------------
+
+describe('instantiateHTLC', () => {
+  it('produces a non-empty script with no placeholders', () => {
+    const invoiceId = new Uint8Array(INVOICE_ID_LEN)
+    const capsuleHash = new Uint8Array(CAPSULE_HASH_LEN)
+    const sellerPkh = new Uint8Array(PUB_KEY_HASH_LEN)
+    const buyerPkh = new Uint8Array(PUB_KEY_HASH_LEN)
+    const script = instantiateHTLC(invoiceId, capsuleHash, sellerPkh, buyerPkh, 72)
+    expect(script.length).toBeGreaterThan(0)
+
+    const hexStr = toHex(script)
+    expect(hexStr).not.toContain('<')
+    expect(hexStr).not.toContain('>')
+  })
+
+  it('embeds parameters at correct byte offsets', () => {
+    const invoiceId = new Uint8Array(INVOICE_ID_LEN)
+    for (let i = 0; i < INVOICE_ID_LEN; i++) invoiceId[i] = i + 1
+    const capsuleHash = new Uint8Array(CAPSULE_HASH_LEN).fill(0xaa)
+    const sellerPkh = new Uint8Array(PUB_KEY_HASH_LEN).fill(0xbb)
+    const buyerPkh = new Uint8Array(PUB_KEY_HASH_LEN).fill(0xcc)
+
+    const script = instantiateHTLC(invoiceId, capsuleHash, sellerPkh, buyerPkh, 144)
+    const hexStr = toHex(script)
+
+    // Verify the substituted values appear
+    expect(hexStr).toContain(toHex(invoiceId))
+    expect(hexStr).toContain(toHex(capsuleHash))
+    expect(hexStr).toContain(toHex(sellerPkh))
+    expect(hexStr).toContain(toHex(buyerPkh))
+    // timeout=144 in sCrypt int encoding: 9000
+    expect(hexStr).toContain('9000')
+  })
+
+  it('is deterministic', () => {
+    const invoiceId = new Uint8Array(INVOICE_ID_LEN)
+    const capsuleHash = new Uint8Array(CAPSULE_HASH_LEN)
+    const sellerPkh = new Uint8Array(PUB_KEY_HASH_LEN)
+    const buyerPkh = new Uint8Array(PUB_KEY_HASH_LEN)
+
+    const script1 = instantiateHTLC(invoiceId, capsuleHash, sellerPkh, buyerPkh, 72)
+    const script2 = instantiateHTLC(invoiceId, capsuleHash, sellerPkh, buyerPkh, 72)
+    expect(script1).toEqual(script2)
+  })
+
+  it('throws on wrong invoiceId length', () => {
+    expect(() =>
+      instantiateHTLC(
+        new Uint8Array(10),
+        new Uint8Array(CAPSULE_HASH_LEN),
+        new Uint8Array(PUB_KEY_HASH_LEN),
+        new Uint8Array(PUB_KEY_HASH_LEN),
+        72,
+      ),
+    ).toThrow('invoiceId')
+  })
+
+  it('throws on wrong capsuleHash length', () => {
+    expect(() =>
+      instantiateHTLC(
+        new Uint8Array(INVOICE_ID_LEN),
+        new Uint8Array(16),
+        new Uint8Array(PUB_KEY_HASH_LEN),
+        new Uint8Array(PUB_KEY_HASH_LEN),
+        72,
+      ),
+    ).toThrow('capsuleHash')
+  })
+
+  it('throws on wrong sellerPkh length', () => {
+    expect(() =>
+      instantiateHTLC(
+        new Uint8Array(INVOICE_ID_LEN),
+        new Uint8Array(CAPSULE_HASH_LEN),
+        new Uint8Array(10),
+        new Uint8Array(PUB_KEY_HASH_LEN),
+        72,
+      ),
+    ).toThrow('sellerPkh')
+  })
+
+  it('throws on wrong buyerPkh length', () => {
+    expect(() =>
+      instantiateHTLC(
+        new Uint8Array(INVOICE_ID_LEN),
+        new Uint8Array(CAPSULE_HASH_LEN),
+        new Uint8Array(PUB_KEY_HASH_LEN),
+        new Uint8Array(10),
+        72,
+      ),
+    ).toThrow('buyerPkh')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// encodeScryptInt tests
+// ---------------------------------------------------------------------------
+
+describe('encodeScryptInt', () => {
+  it.each([
+    [0, '00'],
+    [1, '01'],
+    [72, '48'],
+    [127, '7f'],
+    [128, '8000'],
+    [144, '9000'],
+    [255, 'ff00'],
+    [256, '0001'],
+    [288, '2001'],
+    [-1, '81'],
+    [-128, '8080'],
+  ])('encodes %d as %s', (value, expected) => {
+    expect(encodeScryptInt(value)).toBe(expected)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// isArtifactScript tests
+// ---------------------------------------------------------------------------
+
+describe('isArtifactScript', () => {
+  it('identifies artifact scripts', () => {
+    const params = validHTLCParams()
+    const script = buildHTLC(params)
+    expect(isArtifactScript(script)).toBe(true)
+  })
+
+  it('rejects non-artifact scripts', () => {
+    expect(isArtifactScript(new Uint8Array([0x63, 0xa8]))).toBe(false)
+  })
+
+  it('rejects empty scripts', () => {
+    expect(isArtifactScript(new Uint8Array(0))).toBe(false)
+  })
+})
 
 // ---------------------------------------------------------------------------
 // buildHTLC tests
 // ---------------------------------------------------------------------------
 
 describe('buildHTLC', () => {
-  it('produces a valid script (legacy format without invoice ID)', () => {
+  it('produces a valid sCrypt artifact script', () => {
     const params = validHTLCParams()
     const scriptBytes = buildHTLC(params)
-    expect(scriptBytes.length).toBeGreaterThan(0)
+    expect(scriptBytes.length).toBeGreaterThan(HTLC_MIN_SCRIPT_LEN)
 
-    // Parse and verify structure.
-    const s = Script.fromBinary(Array.from(scriptBytes))
-    const chunks = s.chunks
+    // Should be identified as an artifact script
+    expect(isArtifactScript(scriptBytes)).toBe(true)
 
-    // First chunk: OP_IF
-    expect(chunks[0].op).toBe(OP.OP_IF)
-
-    // Second chunk: OP_SHA256
-    expect(chunks[1].op).toBe(OP.OP_SHA256)
-
-    // Third chunk: capsule hash data (32 bytes)
-    expect(chunks[2].data).toBeDefined()
-    expect(chunks[2].data!.length).toBe(CAPSULE_HASH_LEN)
-    expect(Uint8Array.from(chunks[2].data!)).toEqual(params.capsuleHash)
-
-    // Fourth chunk: OP_EQUALVERIFY
-    expect(chunks[3].op).toBe(OP.OP_EQUALVERIFY)
-
-    // Find OP_ELSE
-    const hasElse = chunks.some(c => c.op === OP.OP_ELSE)
-    expect(hasElse).toBe(true)
-
-    // Find OP_CHECKMULTISIG (buyer refund path)
-    const hasMultisig = chunks.some(c => c.op === OP.OP_CHECKMULTISIG)
-    expect(hasMultisig).toBe(true)
-
-    // Last chunk: OP_ENDIF
-    expect(chunks[chunks.length - 1].op).toBe(OP.OP_ENDIF)
-  })
-
-  it('contains buyer pubkey in refund path', () => {
-    const params = validHTLCParams()
-    const scriptBytes = buildHTLC(params)
-    const s = Script.fromBinary(Array.from(scriptBytes))
-
-    const found = s.chunks.some(
-      c => c.data != null && c.data.length === COMPRESSED_PUB_KEY_LEN &&
-        Uint8Array.from(c.data).every((b, i) => b === params.buyerPubKey[i]),
+    // The capsule hash should be at the expected byte offset
+    const embedded = scriptBytes.slice(
+      HTLC_CAPSULE_HASH_OFFSET,
+      HTLC_CAPSULE_HASH_OFFSET + CAPSULE_HASH_LEN,
     )
-    expect(found).toBe(true)
+    expect(embedded).toEqual(params.capsuleHash)
   })
 
-  it('contains seller pubkey in refund path', () => {
+  it('embeds invoice ID at correct byte offset', () => {
     const params = validHTLCParams()
     const scriptBytes = buildHTLC(params)
-    const s = Script.fromBinary(Array.from(scriptBytes))
 
-    const found = s.chunks.some(
-      c => c.data != null && c.data.length === COMPRESSED_PUB_KEY_LEN &&
-        Uint8Array.from(c.data).every((b, i) => b === params.sellerPubKey[i]),
+    const embedded = scriptBytes.slice(
+      HTLC_INVOICE_ID_OFFSET,
+      HTLC_INVOICE_ID_OFFSET + INVOICE_ID_LEN,
     )
-    expect(found).toBe(true)
+    expect(embedded).toEqual(params.invoiceID)
   })
 
-  it('contains seller address hash in claim path', () => {
+  it('embeds seller PKH at correct byte offset', () => {
     const params = validHTLCParams()
     const scriptBytes = buildHTLC(params)
-    const s = Script.fromBinary(Array.from(scriptBytes))
 
-    const found = s.chunks.some(
-      c => c.data != null && c.data.length === PUB_KEY_HASH_LEN &&
-        Uint8Array.from(c.data).every((b, i) => b === params.sellerPubKeyHash[i]),
+    const embedded = scriptBytes.slice(
+      HTLC_SELLER_PKH_OFFSET,
+      HTLC_SELLER_PKH_OFFSET + PUB_KEY_HASH_LEN,
     )
-    expect(found).toBe(true)
+    expect(embedded).toEqual(params.sellerPubKeyHash)
   })
 
-  it('includes invoice ID prefix when provided', () => {
+  it('embeds buyer PKH (derived from pubkey) at correct byte offset', () => {
     const params = validHTLCParams()
-    const invoiceID = new Uint8Array(INVOICE_ID_LEN)
-    for (let i = 0; i < INVOICE_ID_LEN; i++) invoiceID[i] = i + 200
-    params.invoiceID = invoiceID
-
     const scriptBytes = buildHTLC(params)
-    const s = Script.fromBinary(Array.from(scriptBytes))
-    const chunks = s.chunks
 
-    // First chunk: invoice ID data
-    expect(chunks[0].data).toBeDefined()
-    expect(chunks[0].data!.length).toBe(INVOICE_ID_LEN)
-    expect(Uint8Array.from(chunks[0].data!)).toEqual(invoiceID)
-
-    // Second chunk: OP_DROP
-    expect(chunks[1].op).toBe(OP.OP_DROP)
-
-    // Third chunk: OP_IF (standard HTLC body)
-    expect(chunks[2].op).toBe(OP.OP_IF)
+    const buyerPkh = Uint8Array.from(Hash.hash160(Array.from(params.buyerPubKey)))
+    const embedded = scriptBytes.slice(
+      HTLC_BUYER_PKH_OFFSET,
+      HTLC_BUYER_PKH_OFFSET + PUB_KEY_HASH_LEN,
+    )
+    expect(embedded).toEqual(buyerPkh)
   })
 
   // --- Error cases ---
@@ -164,12 +310,6 @@ describe('buildHTLC', () => {
     const params = validHTLCParams()
     params.buyerPubKey = new Uint8Array([0x02, 0x01])
     expect(() => buildHTLC(params)).toThrow('buyer pubkey must be 33 bytes')
-  })
-
-  it('throws on invalid seller pubkey length', () => {
-    const params = validHTLCParams()
-    params.sellerPubKey = new Uint8Array([0x03, 0x01])
-    expect(() => buildHTLC(params)).toThrow('seller pubkey must be 33 bytes')
   })
 
   it('throws on invalid seller address length', () => {
@@ -211,15 +351,7 @@ describe('buildHTLC', () => {
   it('throws on invalid invoice ID length', () => {
     const params = validHTLCParams()
     params.invoiceID = new Uint8Array(8) // wrong length
-    expect(() => buildHTLC(params)).toThrow('invoice ID must be 16 bytes')
-  })
-
-  it('accepts empty invoiceID (no prefix)', () => {
-    const params = validHTLCParams()
-    params.invoiceID = new Uint8Array(0)
-    const scriptBytes = buildHTLC(params)
-    const s = Script.fromBinary(Array.from(scriptBytes))
-    expect(s.chunks[0].op).toBe(OP.OP_IF)
+    expect(() => buildHTLC(params)).toThrow('invoiceID is mandatory (16 bytes)')
   })
 })
 
@@ -228,23 +360,21 @@ describe('buildHTLC', () => {
 // ---------------------------------------------------------------------------
 
 describe('extractCapsuleHashFromHTLC', () => {
-  it('extracts capsule hash from legacy format', () => {
+  it('extracts capsule hash from artifact script', () => {
     const params = validHTLCParams()
-    const scriptBytes = buildHTLC(params)
-    const extracted = extractCapsuleHashFromHTLC(scriptBytes)
-    expect(extracted).toEqual(params.capsuleHash)
-  })
-
-  it('extracts capsule hash from format with invoice ID', () => {
-    const params = validHTLCParams()
-    params.invoiceID = new Uint8Array(INVOICE_ID_LEN).fill(0xaa)
     const scriptBytes = buildHTLC(params)
     const extracted = extractCapsuleHashFromHTLC(scriptBytes)
     expect(extracted).toEqual(params.capsuleHash)
   })
 
   it('throws on script too short', () => {
-    expect(() => extractCapsuleHashFromHTLC(new Uint8Array([OP.OP_IF]))).toThrow('too short')
+    expect(() => extractCapsuleHashFromHTLC(new Uint8Array(10))).toThrow('too short')
+  })
+
+  it('throws on non-artifact script', () => {
+    // Create a large enough but non-matching script
+    const fake = new Uint8Array(HTLC_MIN_SCRIPT_LEN + 10).fill(0x63)
+    expect(() => extractCapsuleHashFromHTLC(fake)).toThrow('does not match')
   })
 })
 
@@ -253,28 +383,22 @@ describe('extractCapsuleHashFromHTLC', () => {
 // ---------------------------------------------------------------------------
 
 describe('extractInvoiceIDFromHTLC', () => {
-  it('returns null for legacy format (no invoice ID)', () => {
+  it('extracts invoice ID from artifact script', () => {
     const params = validHTLCParams()
-    const scriptBytes = buildHTLC(params)
-    const result = extractInvoiceIDFromHTLC(scriptBytes)
-    expect(result).toBeNull()
-  })
-
-  it('extracts invoice ID when present', () => {
-    const params = validHTLCParams()
-    const invoiceID = new Uint8Array(INVOICE_ID_LEN)
-    for (let i = 0; i < INVOICE_ID_LEN; i++) invoiceID[i] = i + 200
-    params.invoiceID = invoiceID
-
     const scriptBytes = buildHTLC(params)
     const extracted = extractInvoiceIDFromHTLC(scriptBytes)
 
     expect(extracted).not.toBeNull()
-    expect(extracted).toEqual(invoiceID)
+    expect(extracted).toEqual(params.invoiceID)
   })
 
   it('returns null for empty script', () => {
     expect(extractInvoiceIDFromHTLC(new Uint8Array(0))).toBeNull()
+  })
+
+  it('returns null for non-artifact script', () => {
+    const fake = new Uint8Array(HTLC_MIN_SCRIPT_LEN + 10).fill(0x63)
+    expect(extractInvoiceIDFromHTLC(fake)).toBeNull()
   })
 })
 
@@ -444,9 +568,9 @@ describe('parseHTLCPreimage', () => {
     expect(() => parseHTLCPreimage(null as unknown as Uint8Array, null)).toThrow('empty spending transaction')
   })
 
-  it('extracts preimage from valid seller claim tx', () => {
-    // Build a mock transaction with seller-claim unlocking script:
-    // <sig> <pubkey> <preimage> OP_TRUE
+  it('extracts preimage from valid sCrypt seller claim tx', () => {
+    // Build a mock transaction with sCrypt claim unlocking script:
+    // <capsule> <sig> <pubkey> OP_0
     const tx = new Transaction()
 
     const preimage = new Uint8Array(32)
@@ -460,10 +584,10 @@ describe('parseHTLCPreimage', () => {
     dummyPub[0] = 0x02
 
     const unlockScript = new Script()
+    unlockScript.writeBin(Array.from(preimage))
     unlockScript.writeBin(Array.from(dummySig))
     unlockScript.writeBin(Array.from(dummyPub))
-    unlockScript.writeBin(Array.from(preimage))
-    unlockScript.writeOpCode(OP.OP_TRUE)
+    unlockScript.writeOpCode(OP.OP_0)
 
     tx.addInput({
       sourceTXID: '0000000000000000000000000000000000000000000000000000000000000001',
@@ -490,7 +614,7 @@ describe('parseHTLCPreimage', () => {
   })
 
   it('returns error when no HTLC input found (standard P2PKH unlock)', () => {
-    // Build a tx with a standard P2PKH unlock (2 chunks, no OP_TRUE at end).
+    // Build a tx with a standard P2PKH unlock (2 chunks, no OP_0 at end).
     const tx = new Transaction()
     const dummySig = new Uint8Array(71)
     dummySig[0] = 0x30
@@ -500,8 +624,6 @@ describe('parseHTLCPreimage', () => {
     const unlockScript = new Script()
     unlockScript.writeBin(Array.from(dummySig))
     unlockScript.writeBin(Array.from(dummyPub))
-
-    const { UnlockingScript, LockingScript } = require('@bsv/sdk')
 
     tx.addInput({
       sourceTXID: '0000000000000000000000000000000000000000000000000000000000000001',

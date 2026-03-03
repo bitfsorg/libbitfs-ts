@@ -15,6 +15,7 @@ import {
   COMPRESSED_PUB_KEY_LEN,
   PUB_KEY_HASH_LEN,
   CAPSULE_HASH_LEN,
+  INVOICE_ID_LEN,
 } from '../types.js'
 
 // ---------------------------------------------------------------------------
@@ -25,6 +26,12 @@ function makeCapsuleHash(): Uint8Array {
   return Uint8Array.from(Hash.sha256(Array.from(new TextEncoder().encode('refund-test-capsule'))))
 }
 
+function makeInvoiceID(): Uint8Array {
+  const id = new Uint8Array(INVOICE_ID_LEN)
+  for (let i = 0; i < INVOICE_ID_LEN; i++) id[i] = i + 0xf0
+  return id
+}
+
 function makeHTLCScript(buyerPub: Uint8Array, sellerPub: Uint8Array, sellerPKH: Uint8Array): Uint8Array {
   return buildHTLC({
     buyerPubKey: buyerPub,
@@ -33,6 +40,7 @@ function makeHTLCScript(buyerPub: Uint8Array, sellerPub: Uint8Array, sellerPKH: 
     capsuleHash: makeCapsuleHash(),
     amount: 10000n,
     timeoutBlocks: DEFAULT_HTLC_TIMEOUT,
+    invoiceID: makeInvoiceID(),
   })
 }
 
@@ -150,6 +158,7 @@ describe('payment refund flow', () => {
       capsuleHash,
       amount: 10000n,
       timeoutBlocks: DEFAULT_HTLC_TIMEOUT,
+      invoiceID: makeInvoiceID(),
     })
 
     // 2. Create a mock funding UTXO (a transaction with the HTLC output).
@@ -243,6 +252,7 @@ describe('payment refund flow', () => {
       capsuleHash,
       amount: 10000n,
       timeoutBlocks: DEFAULT_HTLC_TIMEOUT,
+      invoiceID: makeInvoiceID(),
     })
 
     const mockFundingTx = buildMockFundingTx(htlcScript, 10000)
@@ -293,6 +303,7 @@ describe('payment refund flow', () => {
       capsuleHash,
       amount: 10000n,
       timeoutBlocks: DEFAULT_HTLC_TIMEOUT,
+      invoiceID: makeInvoiceID(),
     })
 
     const mockFundingTx = buildMockFundingTx(htlcScript, 10000)
@@ -342,6 +353,7 @@ describe('payment refund flow', () => {
       capsuleHash,
       amount: 10000n,
       timeoutBlocks: DEFAULT_HTLC_TIMEOUT,
+      invoiceID: makeInvoiceID(),
     })
 
     const mockFundingTx = buildMockFundingTx(htlcScript, 10000)
@@ -389,6 +401,7 @@ describe('payment refund flow', () => {
       capsuleHash,
       amount: 10000n,
       timeoutBlocks: DEFAULT_HTLC_TIMEOUT,
+      invoiceID: makeInvoiceID(),
     })
 
     const mockTxID = new Uint8Array(32).fill(0xab)

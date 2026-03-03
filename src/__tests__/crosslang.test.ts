@@ -533,34 +533,7 @@ describe('cross-language: storage_compress_lzw', () => {
 })
 
 describe('cross-language: payment_htlc_script', () => {
-  it('buildHTLC produces deterministic script (no invoice ID)', () => {
-    const params: HTLCParams = {
-      buyerPubKey: hexToBytes('030000000000000000000000000000000000000000000000000000000000000001'),
-      sellerPubKey: hexToBytes('020000000000000000000000000000000000000000000000000000000000000002'),
-      sellerPubKeyHash: hexToBytes('aabbccddee00112233445566778899aabbccddee'),
-      capsuleHash: hexToBytes('0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20'),
-      amount: 50000n,
-      timeoutBlocks: 72,
-    }
-
-    const script = buildHTLC(params)
-    expect(script.length).toBeGreaterThan(0)
-
-    // Extract capsule hash and verify it matches
-    const extractedHash = extractCapsuleHashFromHTLC(script)
-    expect(bytesToHex(extractedHash)).toBe(bytesToHex(params.capsuleHash))
-
-    // No invoice ID in legacy format
-    const invoiceID = extractInvoiceIDFromHTLC(script)
-    expect(invoiceID).toBeNull()
-
-    // Regression vector for script bytes
-    expect(bytesToHex(script)).toMatchInlineSnapshot(
-      `"63a8200102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f208876a914aabbccddee00112233445566778899aabbccddee88ac6752210300000000000000000000000000000000000000000000000000000000000000012102000000000000000000000000000000000000000000000000000000000000000252ae68"`,
-    )
-  })
-
-  it('buildHTLC produces deterministic script (with invoice ID)', () => {
+  it('buildHTLC produces deterministic sCrypt artifact script', () => {
     const invoiceID = hexToBytes('aabbccddeeff00112233445566778899')
     const params: HTLCParams = {
       buyerPubKey: hexToBytes('030000000000000000000000000000000000000000000000000000000000000001'),
@@ -573,6 +546,7 @@ describe('cross-language: payment_htlc_script', () => {
     }
 
     const script = buildHTLC(params)
+    expect(script.length).toBeGreaterThan(0)
 
     // Extract invoice ID and verify
     const extractedInvoiceID = extractInvoiceIDFromHTLC(script)
@@ -583,10 +557,35 @@ describe('cross-language: payment_htlc_script', () => {
     const extractedHash = extractCapsuleHashFromHTLC(script)
     expect(bytesToHex(extractedHash)).toBe(bytesToHex(params.capsuleHash))
 
+    // Regression vector for sCrypt artifact script
+    expect(bytesToHex(script)).toMatchSnapshot()
+  })
+
+  it('buildHTLC produces deterministic script (with different invoice ID)', () => {
+    const invoiceID = hexToBytes('00112233445566778899aabbccddeeff')
+    const params: HTLCParams = {
+      buyerPubKey: hexToBytes('030000000000000000000000000000000000000000000000000000000000000001'),
+      sellerPubKey: hexToBytes('020000000000000000000000000000000000000000000000000000000000000002'),
+      sellerPubKeyHash: hexToBytes('aabbccddee00112233445566778899aabbccddee'),
+      capsuleHash: hexToBytes('0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20'),
+      amount: 50000n,
+      timeoutBlocks: 72,
+      invoiceID,
+    }
+
+    const script = buildHTLC(params)
+
+    // Different invoice ID should produce different script
+    const extractedInvoiceID = extractInvoiceIDFromHTLC(script)
+    expect(extractedInvoiceID).not.toBeNull()
+    expect(bytesToHex(extractedInvoiceID!)).toBe('00112233445566778899aabbccddeeff')
+
+    // But same capsule hash
+    const extractedHash = extractCapsuleHashFromHTLC(script)
+    expect(bytesToHex(extractedHash)).toBe(bytesToHex(params.capsuleHash))
+
     // Regression vector
-    expect(bytesToHex(script)).toMatchInlineSnapshot(
-      `"10aabbccddeeff001122334455667788997563a8200102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f208876a914aabbccddee00112233445566778899aabbccddee88ac6752210300000000000000000000000000000000000000000000000000000000000000012102000000000000000000000000000000000000000000000000000000000000000252ae68"`,
-    )
+    expect(bytesToHex(script)).toMatchSnapshot()
   })
 })
 
