@@ -5,8 +5,10 @@
 // ParseNode parses OP_RETURN push data [MetaFlag, P_node, TxID_parent, Payload].
 
 import type { Node } from './types.js'
-import { NodeType, AccessLevel, LinkType, createNode, MAX_PAYLOAD_SIZE, COMPRESSED_PUBKEY_LEN } from './types.js'
+import { NodeType, AccessLevel, LinkType, createNode, MAX_PAYLOAD_SIZE, COMPRESSED_PUBKEY_LEN, TXID_LEN } from './types.js'
 import { MetanetError, ErrInvalidPayload, ErrInvalidOPReturn } from './errors.js'
+import { META_FLAG } from '../tx/opreturn.js'
+import { timingSafeEqual } from '../util.js'
 import {
   TAG_VERSION,
   TAG_TYPE,
@@ -526,5 +528,63 @@ export function deserializePayload(data: Uint8Array, node: Node): void {
 export function parsePayload(data: Uint8Array): Node {
   const node = createNode()
   deserializePayload(data, node)
+  return node
+}
+
+/**
+ * Parses a Metanet node from OP_RETURN push data.
+ * Expects pushes: [MetaFlag, P_node, ParentTxID, Payload].
+ */
+export function parseNodeFromPushes(pushes: Uint8Array[]): Node {
+  if (pushes.length < 4) {
+    throw new ErrInvalidOPReturn(`expected 4 data pushes, got ${pushes.length}`)
+  }
+
+  if (!timingSafeEqual(pushes[0], META_FLAG)) {
+    throw new ErrInvalidOPReturn('invalid MetaFlag')
+  }
+
+  const pNode = pushes[1]
+  if (pNode.length !== COMPRESSED_PUBKEY_LEN) {
+    throw new ErrInvalidOPReturn(
+      `P_node must be ${COMPRESSED_PUBKEY_LEN} bytes, got ${pNode.length}`,
+    )
+  }
+
+  const parentTxID = pushes[2]
+  if (parentTxID.length !== 0 && parentTxID.length !== TXID_LEN) {
+    throw new ErrInvalidOPReturn(
+      `parent TxID must be 0 or ${TXID_LEN} bytes, got ${parentTxID.length}`,
+    )
+  }
+
+  const node = parsePayload(pushes[3])
+  node.pNode = Uint8Array.from(pNode)
+  node.parentTxID = Uint8Array.from(parentTxID)
+  return node
+}
+
+/**
+ * Like parseNodeFromPushes but also sets TxID.
+ */
+export function parseNodeFromPushesWithTxID(pushes: Uint8Array[], txID: Uint8Array): Node {
+  const node = parseNodeFromPushes(pushes)
+  if (txID.length === TXID_LEN) {
+    node.txID = Uint8Array.from(txID)
+  }
+  return node
+}
+
+/**
+ * Like parseNodeFromPushesWithTxID but also sets Vout.
+ * Use this when parsing nodes from multi-output batch transactions.
+ */
+export function parseNodeFromPushesWithOutpoint(
+  pushes: Uint8Array[],
+  txID: Uint8Array,
+  vout: number,
+): Node {
+  const node = parseNodeFromPushesWithTxID(pushes, txID)
+  node.vout = vout
   return node
 }

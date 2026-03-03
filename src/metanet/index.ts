@@ -47,7 +47,7 @@ export {
   nodeTypeToString,
   opTypeToString,
 } from './types.js'
-export type { ISOConfig, ChildEntry, Node, ResolveResult, NodeStore } from './types.js'
+export type { ISOConfig, ChildEntry, Node, ResolveResult, NodeStore, OutpointStore } from './types.js'
 
 // TLV encoding/decoding
 export {
@@ -117,8 +117,8 @@ export {
   concat,
 } from './tlv.js'
 
-// Parser (Node <-> TLV payload)
-export { serializePayload, deserializePayload, parsePayload } from './parser.js'
+// Parser (Node <-> TLV payload, OP_RETURN push parsing)
+export { serializePayload, deserializePayload, parsePayload, parseNodeFromPushes, parseNodeFromPushesWithTxID, parseNodeFromPushesWithOutpoint } from './parser.js'
 
 // Directory operations
 export { listDirectory, findChild, addChild, removeChild, renameChild, nextChildIndex } from './directory.js'

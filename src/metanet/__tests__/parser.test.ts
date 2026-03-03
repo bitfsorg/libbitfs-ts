@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { serializePayload, deserializePayload, parsePayload } from '../parser.js'
-import { createNode, NodeType, OpType, AccessLevel, LinkType, ISOStatus, CompressionScheme } from '../types.js'
+import { serializePayload, deserializePayload, parsePayload, parseNodeFromPushes, parseNodeFromPushesWithTxID, parseNodeFromPushesWithOutpoint } from '../parser.js'
+import { createNode, NodeType, OpType, AccessLevel, LinkType, ISOStatus, CompressionScheme, COMPRESSED_PUBKEY_LEN, TXID_LEN } from '../types.js'
 import type { Node, ChildEntry, ISOConfig } from '../types.js'
+import { META_FLAG } from '../../tx/opreturn.js'
 
 /** Creates a test pubkey filled with a byte value. */
 function testPubKey(fill: number): Uint8Array {
@@ -330,5 +331,98 @@ describe('deserializePayload error handling', () => {
     // Build a fake large varint length
     const data = new Uint8Array([0x04, 0x81, 0x80, 0x80, 0x80, 0x08]) // ~2GB
     expect(() => deserializePayload(data, node)).toThrow('too large')
+  })
+})
+
+// --- OP_RETURN push-level parsing ---
+
+describe('parseNodeFromPushes', () => {
+  it('parses OP_RETURN pushes into a Node', () => {
+    const node = createNode()
+    node.version = 1
+    node.type = NodeType.File
+    node.op = OpType.Create
+    const payload = serializePayload(node)
+
+    const pNode = testPubKey(0x11)
+    const parentTxID = testHash(0x22)
+    const pushes = [META_FLAG, pNode, parentTxID, payload]
+
+    const parsed = parseNodeFromPushes(pushes)
+    expect(parsed.version).toBe(1)
+    expect(parsed.type).toBe(NodeType.File)
+    expect(parsed.op).toBe(OpType.Create)
+    expect(parsed.pNode).toEqual(pNode)
+    expect(parsed.parentTxID).toEqual(parentTxID)
+  })
+
+  it('parses root node (empty parentTxID)', () => {
+    const node = createNode()
+    node.version = 1
+    node.type = NodeType.Dir
+    node.op = OpType.Create
+    const payload = serializePayload(node)
+
+    const pNode = testPubKey(0x33)
+    const pushes = [META_FLAG, pNode, new Uint8Array(0), payload]
+
+    const parsed = parseNodeFromPushes(pushes)
+    expect(parsed.pNode).toEqual(pNode)
+    expect(parsed.parentTxID).toEqual(new Uint8Array(0))
+    expect(parsed.type).toBe(NodeType.Dir)
+  })
+
+  it('throws on too few pushes', () => {
+    expect(() => parseNodeFromPushes([META_FLAG, testPubKey(0x01)])).toThrow()
+  })
+
+  it('throws on wrong MetaFlag', () => {
+    const payload = serializePayload(createNode())
+    const pushes = [new Uint8Array([0xff, 0xff, 0xff, 0xff]), testPubKey(0x01), new Uint8Array(0), payload]
+    expect(() => parseNodeFromPushes(pushes)).toThrow()
+  })
+})
+
+describe('parseNodeFromPushesWithTxID', () => {
+  it('sets txID on parsed node', () => {
+    const node = createNode()
+    node.version = 1
+    node.type = NodeType.File
+    node.op = OpType.Create
+    const payload = serializePayload(node)
+
+    const pNode = testPubKey(0x44)
+    const txID = testHash(0xAA)
+    const pushes = [META_FLAG, pNode, new Uint8Array(0), payload]
+
+    const parsed = parseNodeFromPushesWithTxID(pushes, txID)
+    expect(parsed.txID).toEqual(txID)
+    expect(parsed.vout).toBe(0) // default
+  })
+})
+
+describe('parseNodeFromPushesWithOutpoint', () => {
+  it('sets txID and vout', () => {
+    const node = createNode()
+    node.version = 1
+    node.type = NodeType.File
+    node.op = OpType.Create
+    const payload = serializePayload(node)
+
+    const pNode = testPubKey(0x55)
+    const txID = testHash(0xBB)
+    const pushes = [META_FLAG, pNode, new Uint8Array(0), payload]
+
+    const parsed = parseNodeFromPushesWithOutpoint(pushes, txID, 5)
+    expect(parsed.vout).toBe(5)
+    expect(parsed.txID).toEqual(txID)
+    expect(parsed.pNode).toEqual(pNode)
+  })
+})
+
+describe('createNode vout default', () => {
+  it('createNode sets vout to 0', () => {
+    const n = createNode()
+    expect(n.vout).toBe(0)
   })
 })

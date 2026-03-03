@@ -112,6 +112,8 @@ export interface ChildEntry {
 export interface Node {
   /** Transaction ID (32 bytes). */
   txID: Uint8Array
+  /** Output index of this node's P2PKH in its TX (0 for legacy single-op TXs). */
+  vout: number
   /** P_node compressed public key (33 bytes). */
   pNode: Uint8Array
   /** Parent's TxID (empty for root). */
@@ -223,10 +225,19 @@ export interface NodeStore {
   getChildNodes(dirNode: Node): Promise<Node[]>
 }
 
+/**
+ * OutpointStore extends NodeStore with outpoint-based lookups.
+ * Needed for multi-output batch TXs where nodes share a TxID.
+ */
+export interface OutpointStore extends NodeStore {
+  getNodeByOutpoint(txID: Uint8Array, vout: number): Promise<Node | null>
+}
+
 /** Creates a new empty Node with default values. */
 export function createNode(): Node {
   return {
     txID: new Uint8Array(0),
+    vout: 0,
     pNode: new Uint8Array(0),
     parentTxID: new Uint8Array(0),
     blockHeight: 0,
