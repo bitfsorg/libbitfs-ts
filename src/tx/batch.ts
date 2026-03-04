@@ -363,16 +363,10 @@ export class MutationBatch {
     let changeUTXO: UTXO | undefined
 
     if (changeAmount > DUST_LIMIT) {
-      let changeLockScript
-
-      if (this.changeAddr != null && this.changeAddr.length === 20) {
-        changeLockScript = buildP2PKHFromHash(this.changeAddr)
-      } else if (this.ops.length === 1) {
-        // Single-op batch: fall back to the op's node key as change destination.
-        changeLockScript = buildP2PKHLockingScript(this.ops[0].pubKey)
-      } else {
-        throw new InvalidParamsError('change address required for multi-op batch')
+      if (this.changeAddr == null || this.changeAddr.length !== 20) {
+        throw new InvalidParamsError('change address required (20-byte P2PKH hash)')
       }
+      const changeLockScript = buildP2PKHFromHash(this.changeAddr)
 
       sdkTx.addOutput({
         satoshis: Number(changeAmount),

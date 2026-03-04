@@ -21,8 +21,8 @@ export const META_FLAG = new Uint8Array([0x6d, 0x65, 0x74, 0x61])
  */
 export const DUST_LIMIT = 1n
 
-/** Default fee rate in sat/KB. */
-export const DEFAULT_FEE_RATE = 1n
+/** Default fee rate in sat/KB (fallback when callers pass 0). */
+export const DEFAULT_FEE_RATE = 100n
 
 /** Length of a compressed public key. */
 export const COMPRESSED_PUB_KEY_LEN = 33
@@ -156,4 +156,3 @@ export function estimateTxSize(
     13 + 4 + 1 + COMPRESSED_PUB_KEY_LEN + 1 + TXID_LEN + 1 + payloadSize + 4
   return base + inputs + outputs + opReturn
 }
-

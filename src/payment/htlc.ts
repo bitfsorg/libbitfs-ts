@@ -41,6 +41,12 @@ import {
   HTLC_MIN_SCRIPT_LEN,
 } from './artifact.js'
 
+/** Returns ceil(txSizeBytes * satPerKB / 1000). */
+function estimateFeeByKB(txSizeBytes: number, satPerKB: number): bigint {
+  const rate = satPerKB > 0 ? satPerKB : DEFAULT_HTLC_FEE_RATE
+  return (BigInt(txSizeBytes) * BigInt(rate) + 999n) / 1000n
+}
+
 // ---------------------------------------------------------------------------
 // HTLC script building
 // ---------------------------------------------------------------------------
@@ -214,7 +220,7 @@ export async function buildHTLCFundingTx(params: HTLCFundingParams): Promise<HTL
   const htlcOutputSize = 8 + 1 + htlcScript.length    // satoshis + varint + script
   const changeOutputSize = 8 + 1 + 25                  // P2PKH: 8 + varint + OP_DUP..OP_CHECKSIG
   const estSize = 10 + params.utxos.length * 148 + htlcOutputSize + changeOutputSize
-  const estFee = BigInt(estSize) * BigInt(feeRate)
+  const estFee = estimateFeeByKB(estSize, feeRate)
 
   const totalNeeded = htlcAmount + estFee
   if (totalInput < totalNeeded) {
@@ -340,7 +346,7 @@ export async function buildSellerClaimTx(params: SellerClaimParams): Promise<Uin
 
   // Estimate claim tx size: ~10 overhead + ~(73+33+64+1) unlocking + script + ~40 output.
   const estSize = 10 + 73 + 33 + 64 + 1 + params.htlcScript.length + 40
-  const estFee = BigInt(estSize) * BigInt(feeRate)
+  const estFee = estimateFeeByKB(estSize, feeRate)
 
   if (params.fundingAmount <= estFee) {
     throw new Error(

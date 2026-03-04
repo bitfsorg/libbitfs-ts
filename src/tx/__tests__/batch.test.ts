@@ -13,6 +13,7 @@ import {
   buildP2PKHLockingScript,
   estimateTxSize,
   estimateFee,
+  DEFAULT_FEE_RATE,
 } from '../index.js'
 import type { UTXO, BatchNodeOp } from '../index.js'
 
@@ -61,6 +62,7 @@ describe('MutationBatch.build', () => {
     const batch = new MutationBatch()
     batch.addCreateRoot(pub, new TextEncoder().encode('root-payload'))
     batch.addFeeInput(testFeeUTXO(5000n))
+    batch.setChange(filledBytes(20, 0xcc))
 
     const result = await batch.build()
     expect(result).toBeDefined()
@@ -92,6 +94,7 @@ describe('MutationBatch.build', () => {
       privateKey: priv,
     })
     batch.addFeeInput(testFeeUTXO(100000n))
+    batch.setChange(filledBytes(20, 0xcc))
 
     const result = await batch.build()
     expect(result).toBeDefined()
@@ -192,7 +195,7 @@ describe('MutationBatch.build', () => {
       parentTxID: filledBytes(32, 0xaa),
       payload: new TextEncoder().encode('delete-payload'),
       inputUTXO: {
-        txID: filledBytes(32, 0x01),
+        txID: filledBytes(32, 0x03),
         vout: 0,
         amount: 1n,
         scriptPubKey: new Uint8Array(25),
@@ -200,6 +203,7 @@ describe('MutationBatch.build', () => {
       privateKey: priv,
     })
     batch.addFeeInput(testFeeUTXO(5000n))
+    batch.setChange(filledBytes(20, 0xcc))
 
     const result = await batch.build()
     expect(result.nodeOps).toHaveLength(1)
@@ -285,6 +289,7 @@ describe('MutationBatch.build', () => {
       amount: 10000n,
       scriptPubKey: new Uint8Array(25),
     })
+    batch.setChange(filledBytes(20, 0xee))
 
     const result = await batch.build()
     const sdkTx = Transaction.fromBinary(Array.from(result.rawTx))
@@ -297,6 +302,7 @@ describe('MutationBatch.build', () => {
     const batch = new MutationBatch()
     batch.addCreateRoot(pub, new TextEncoder().encode('root-payload'))
     batch.addFeeInput(testFeeUTXO(100000n))
+    batch.setChange(filledBytes(20, 0xcc))
 
     const result = await batch.build()
 
@@ -404,9 +410,8 @@ describe('MutationBatch.build errors', () => {
     await expect(batch.build()).rejects.toThrow(NilParamError)
   })
 
-  it('multi-op batch without change address throws InvalidParamsError', async () => {
+  it('batch without change address throws InvalidParamsError when change > dust', async () => {
     const { pub: pub1 } = generateKeyPair()
-    const { pub: pub2 } = generateKeyPair()
 
     const batch = new MutationBatch()
     batch.addNodeOp({
@@ -414,12 +419,6 @@ describe('MutationBatch.build errors', () => {
       pubKey: pub1,
       parentTxID: new Uint8Array(0),
       payload: new TextEncoder().encode('payload1'),
-    })
-    batch.addNodeOp({
-      type: BatchOpType.Create,
-      pubKey: pub2,
-      parentTxID: new Uint8Array(0),
-      payload: new TextEncoder().encode('payload2'),
     })
     batch.addFeeInput(testFeeUTXO(100000n))
     await expect(batch.build()).rejects.toThrow(InvalidParamsError)
@@ -440,10 +439,11 @@ describe('MutationBatch.build errors', () => {
     // Calculate exact amount that leaves change <= dust.
     const numOutputs = 3
     const estSize = estimateTxSize(1, numOutputs, payload.length)
-    const estFee = estimateFee(estSize, 1n)
+    const estFee = estimateFee(estSize, DEFAULT_FEE_RATE)
     const feeAmount = DUST_LIMIT + estFee + 1n // change = 1 sat <= dust
 
     batch.addFeeInput(testFeeUTXO(feeAmount))
+    batch.setChange(filledBytes(20, 0xcc))
 
     const result = await batch.build()
     expect(result.changeUTXO).toBeUndefined()
@@ -527,6 +527,7 @@ describe('MutationBatch convenience builders', () => {
     const batch = new MutationBatch()
     batch.addCreateRoot(pub, new TextEncoder().encode('root-payload'))
     batch.addFeeInput(testFeeUTXO(5000n))
+    batch.setChange(filledBytes(20, 0xcc))
 
     const result = await batch.build()
     expect(result.nodeOps).toHaveLength(1)
@@ -547,6 +548,7 @@ describe('MutationBatch.sign', () => {
     const batch = new MutationBatch()
     batch.addCreateRoot(pub, new TextEncoder().encode('test metanet root payload'))
     batch.addFeeInput(feeUTXO)
+    batch.setChange(filledBytes(20, 0xcc))
 
     const result = await batch.build()
     expect(result.rawTx.length).toBeGreaterThan(0)
@@ -596,6 +598,7 @@ describe('MutationBatch.sign', () => {
       scriptPubKey: nodeScriptBytes,
       privateKey: priv,
     })
+    batch.setChange(filledBytes(20, 0xcc))
 
     const result = await batch.build()
     const txHex = await batch.sign(result)

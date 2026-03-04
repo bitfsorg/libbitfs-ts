@@ -37,8 +37,8 @@ export const CAPSULE_HASH_LEN = 32
 /** Expected length of an invoice ID for HTLC replay protection. */
 export const INVOICE_ID_LEN = 16
 
-/** Default fee rate in satoshis per byte. */
-export const DEFAULT_HTLC_FEE_RATE = 1
+/** Default fee rate in satoshis per KB (fallback when callers pass 0). */
+export const DEFAULT_HTLC_FEE_RATE = 100
 
 // ---------------------------------------------------------------------------
 // Invoice
@@ -120,7 +120,7 @@ export interface HTLCFundingParams {
   utxos: HTLCUTXO[]
   /** 20-byte change address hash. */
   changeAddr: Uint8Array
-  /** Satoshis per byte (0 = use default). */
+  /** Satoshis per KB (0 = use default). */
   feeRate: number
   /** 16-byte invoice ID for replay protection (mandatory). */
   invoiceID: Uint8Array
@@ -162,7 +162,7 @@ export interface SellerClaimParams {
   sellerPrivKey: PrivateKey
   /** 20-byte destination P2PKH hash. */
   outputAddr: Uint8Array
-  /** Satoshis per byte (0 = use default). */
+  /** Satoshis per KB (0 = use default). */
   feeRate: number
 }
 
@@ -220,6 +220,6 @@ export interface BuyerRefundParams {
   outputAddr: Uint8Array
   /** Block height for nLockTime (0 = DefaultHTLCTimeout). */
   timeout: number
-  /** Satoshis per byte (0 = use default). */
+  /** Satoshis per KB (0 = use default). */
   feeRate?: number
 }

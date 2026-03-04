@@ -25,6 +25,12 @@ import {
 } from './errors.js'
 import { toHex, timingSafeEqual } from '../util.js'
 
+/** Returns ceil(txSizeBytes * satPerKB / 1000). */
+function estimateFeeByKB(txSizeBytes: number, satPerKB: number): bigint {
+  const rate = satPerKB > 0 ? satPerKB : DEFAULT_HTLC_FEE_RATE
+  return (BigInt(txSizeBytes) * BigInt(rate) + 999n) / 1000n
+}
+
 // ---------------------------------------------------------------------------
 // verifyHTLCFunding
 // ---------------------------------------------------------------------------
@@ -137,7 +143,7 @@ export function buildBuyerRefundTx(params: BuyerRefundParams): Uint8Array {
   // Estimate refund tx size: ~10 overhead + ~(73 + 33 + 1) unlocking
   // + script + ~40 output. No sighash preimage needed for plain script HTLC.
   const estSize = 10 + 73 + 33 + 1 + params.htlcScript.length + 40
-  const estFee = BigInt(estSize) * BigInt(feeRate)
+  const estFee = estimateFeeByKB(estSize, feeRate)
 
   if (params.fundingAmount <= estFee) {
     throw new Error(

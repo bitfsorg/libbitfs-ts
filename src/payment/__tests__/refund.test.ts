@@ -236,7 +236,7 @@ describe('buildBuyerRefundTx (on-chain buyer-only)', () => {
 
     expect(refundRawTx.length).toBeGreaterThan(0)
     const refundTx = Transaction.fromBinary(Array.from(refundRawTx))
-    // Output should reflect default 1 sat/byte fee rate
+    // Output should reflect default sat/KB fee rate fallback.
     const outputAmount = BigInt(refundTx.outputs[0].satoshis ?? 0)
     expect(outputAmount).toBeGreaterThan(0n)
     expect(outputAmount).toBeLessThan(50000n)
@@ -344,7 +344,7 @@ describe('buildBuyerRefundTx (on-chain buyer-only)', () => {
       buildBuyerRefundTx({
         fundingTxID: new Uint8Array(32),
         fundingVout: 0,
-        fundingAmount: 100n, // too small for any fee
+        fundingAmount: 10n, // too small for estimated default fee
         htlcScript,
         buyerPrivKey: buyerPriv,
         outputAddr: buyerPKH,

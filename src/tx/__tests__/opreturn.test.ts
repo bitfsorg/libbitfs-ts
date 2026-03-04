@@ -44,8 +44,8 @@ describe('tx constants', () => {
     expect(DUST_LIMIT).toBe(1n)
   })
 
-  it('DEFAULT_FEE_RATE is 1 sat/KB', () => {
-    expect(DEFAULT_FEE_RATE).toBe(1n)
+  it('DEFAULT_FEE_RATE is 100 sat/KB', () => {
+    expect(DEFAULT_FEE_RATE).toBe(100n)
   })
 
   it('COMPRESSED_PUB_KEY_LEN is 33', () => {
@@ -232,9 +232,9 @@ describe('estimateFee', () => {
     expect(fee).toBe(1n)
   })
 
-  it('0 rate uses default (1 sat/KB)', () => {
+  it('0 rate uses default (100 sat/KB)', () => {
     const fee = estimateFee(1000, 0n)
-    expect(fee).toBe(1n)
+    expect(fee).toBe(100n)
   })
 
   it('zero-size tx returns 0', () => {
