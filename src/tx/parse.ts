@@ -27,8 +27,10 @@ export interface ParsedNodeOp {
   payload: Uint8Array
   /** Output index of the OP_RETURN. */
   vout: number
-  /** Output index of the following P2PKH dust output. */
+  /** Output index of the paired P2PKH dust output (0 for deletes). */
   nodeVout: number
+  /** True when this op has no paired P2PKH refresh output. */
+  isDelete: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -45,6 +47,14 @@ const OP_PUSHDATA1 = 0x4c
 const OP_PUSHDATA2 = 0x4d
 /** OP_PUSHDATA4: next 4 bytes (LE) are length */
 const OP_PUSHDATA4 = 0x4e
+/** OP_DUP */
+const OP_DUP = 0x76
+/** OP_HASH160 */
+const OP_HASH160 = 0xa9
+/** OP_EQUALVERIFY */
+const OP_EQUALVERIFY = 0x88
+/** OP_CHECKSIG */
+const OP_CHECKSIG = 0xac
 
 // ---------------------------------------------------------------------------
 // Internal: push data parser
@@ -132,6 +142,29 @@ function parseMetanetOPReturn(scriptBytes: Uint8Array): Uint8Array[] | null {
   return pushes
 }
 
+/**
+ * Returns true if an output is a dust (1 sat) standard P2PKH output.
+ * This is the signature of a node refresh output in MutationBatch.
+ */
+function isDustP2PKHOutput(out: TxOutput): boolean {
+  if (out.value !== 1n) {
+    return false
+  }
+
+  const s = out.scriptPubKey
+  if (s.length !== 25) {
+    return false
+  }
+
+  return (
+    s[0] === OP_DUP &&
+    s[1] === OP_HASH160 &&
+    s[2] === 0x14 &&
+    s[23] === OP_EQUALVERIFY &&
+    s[24] === OP_CHECKSIG
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -174,21 +207,31 @@ export function parseTxNodeOps(outputs: TxOutput[]): ParsedNodeOp[] {
       continue
     }
 
-    // The next output should be the P2PKH dust output.
-    const nodeVout = i + 1
+    // If next output is dust-P2PKH, this is create/update/create-root.
+    if (i + 1 < outputs.length && isDustP2PKHOutput(outputs[i + 1])) {
+      ops.push({
+        pNode: Uint8Array.from(pNode),
+        parentTxID: Uint8Array.from(parentTxID),
+        payload: Uint8Array.from(payload),
+        vout: i,
+        nodeVout: i + 1,
+        isDelete: false,
+      })
 
+      // Skip paired P2PKH output.
+      i++
+      continue
+    }
+
+    // No paired dust-P2PKH means delete operation.
     ops.push({
       pNode: Uint8Array.from(pNode),
       parentTxID: Uint8Array.from(parentTxID),
       payload: Uint8Array.from(payload),
       vout: i,
-      nodeVout,
+      nodeVout: 0,
+      isDelete: true,
     })
-
-    // Skip the paired P2PKH output to avoid re-processing.
-    if (i + 1 < outputs.length) {
-      i++
-    }
   }
 
   return ops

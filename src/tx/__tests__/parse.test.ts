@@ -81,6 +81,7 @@ describe('parseTxNodeOps', () => {
     // vout indices
     expect(op.vout).toBe(0)
     expect(op.nodeVout).toBe(1)
+    expect(op.isDelete).toBe(false)
   })
 
   it('extracts multiple node ops from batch transaction', () => {
@@ -105,6 +106,7 @@ describe('parseTxNodeOps', () => {
     expect(ops[0].payload).toEqual(payload1)
     expect(ops[0].vout).toBe(0)
     expect(ops[0].nodeVout).toBe(1)
+    expect(ops[0].isDelete).toBe(false)
 
     // Second op
     expect(ops[1].pNode).toEqual(Uint8Array.from(pub2.toDER() as number[]))
@@ -112,6 +114,7 @@ describe('parseTxNodeOps', () => {
     expect(ops[1].payload).toEqual(payload2)
     expect(ops[1].vout).toBe(2)
     expect(ops[1].nodeVout).toBe(3)
+    expect(ops[1].isDelete).toBe(false)
   })
 
   it('returns empty array for non-Metanet transaction', () => {
@@ -191,6 +194,7 @@ describe('parseTxNodeOps', () => {
     expect(ops[0].parentTxID).toHaveLength(0)
     expect(ops[0].pNode).toEqual(Uint8Array.from(pub.toDER() as number[]))
     expect(ops[0].payload).toEqual(payload)
+    expect(ops[0].isDelete).toBe(false)
   })
 
   it('handles batch with mixed regular and Metanet outputs', () => {
@@ -214,6 +218,7 @@ describe('parseTxNodeOps', () => {
     expect(ops).toHaveLength(1)
     expect(ops[0].vout).toBe(1)
     expect(ops[0].nodeVout).toBe(2)
+    expect(ops[0].isDelete).toBe(false)
     expect(ops[0].pNode).toEqual(Uint8Array.from(pub.toDER() as number[]))
   })
 
@@ -310,6 +315,45 @@ describe('parseTxNodeOps', () => {
       expect(ops[i].payload).toEqual(payloads[i])
       expect(ops[i].vout).toBe(i * 2)
       expect(ops[i].nodeVout).toBe(i * 2 + 1)
+      expect(ops[i].isDelete).toBe(false)
     }
+  })
+
+  it('parses OP_RETURN without paired dust output as delete', () => {
+    const { pub } = generateKeyPair()
+    const parentTxID = filledBytes(TXID_LEN, 0x44)
+    const payload = new TextEncoder().encode('delete op payload')
+
+    const [opReturn] = buildNodeOpOutputs(pub, parentTxID, payload)
+    const ops = parseTxNodeOps([opReturn])
+
+    expect(ops).toHaveLength(1)
+    expect(ops[0].vout).toBe(0)
+    expect(ops[0].nodeVout).toBe(0)
+    expect(ops[0].isDelete).toBe(true)
+    expect(ops[0].payload).toEqual(payload)
+  })
+
+  it('does not treat non-dust next output as paired node refresh', () => {
+    const { pub } = generateKeyPair()
+    const parentTxID = filledBytes(TXID_LEN, 0x55)
+    const payload = new TextEncoder().encode('op with change-like next output')
+    const [opReturn] = buildNodeOpOutputs(pub, parentTxID, payload)
+
+    // Looks like P2PKH but value is > 1 sat, so this should be treated as change.
+    const changeLikeOutput: TxOutput = {
+      value: 1000n,
+      scriptPubKey: new Uint8Array([
+        0x76, 0xa9, 0x14,
+        ...new Uint8Array(20).fill(0x99),
+        0x88, 0xac,
+      ]),
+    }
+
+    const ops = parseTxNodeOps([opReturn, changeLikeOutput])
+    expect(ops).toHaveLength(1)
+    expect(ops[0].vout).toBe(0)
+    expect(ops[0].nodeVout).toBe(0)
+    expect(ops[0].isDelete).toBe(true)
   })
 })

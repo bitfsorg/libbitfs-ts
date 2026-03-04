@@ -43,7 +43,6 @@ export {
 export {
   buildHTLCScript,
   isHTLCScript,
-  encodeScriptNum,
   instantiateHTLC,    // @deprecated backward compat alias for buildHTLCScript
   isArtifactScript,   // @deprecated backward compat alias for isHTLCScript
 } from './artifact.js'

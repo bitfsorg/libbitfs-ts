@@ -118,7 +118,15 @@ export {
 } from './tlv.js'
 
 // Parser (Node <-> TLV payload, OP_RETURN push parsing)
-export { serializePayload, deserializePayload, parsePayload, parseNodeFromPushes, parseNodeFromPushesWithTxID, parseNodeFromPushesWithOutpoint } from './parser.js'
+export {
+  serializePayload,
+  deserializePayload,
+  parsePayload,
+  parseNodeFromPushes,
+  parseNodeFromPushesWithTxID,
+  parseNodeFromPushesWithOutpoint,
+  parseTxToNodes,
+} from './parser.js'
 
 // Directory operations
 export { listDirectory, findChild, addChild, removeChild, renameChild, nextChildIndex } from './directory.js'

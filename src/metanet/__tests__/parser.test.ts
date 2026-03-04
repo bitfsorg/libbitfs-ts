@@ -1,8 +1,19 @@
 import { describe, it, expect } from 'vitest'
-import { serializePayload, deserializePayload, parsePayload, parseNodeFromPushes, parseNodeFromPushesWithTxID, parseNodeFromPushesWithOutpoint } from '../parser.js'
+import { PrivateKey, PublicKey } from '@bsv/sdk'
+import {
+  serializePayload,
+  deserializePayload,
+  parsePayload,
+  parseNodeFromPushes,
+  parseNodeFromPushesWithTxID,
+  parseNodeFromPushesWithOutpoint,
+  parseTxToNodes,
+} from '../parser.js'
 import { createNode, NodeType, OpType, AccessLevel, LinkType, ISOStatus, CompressionScheme, COMPRESSED_PUBKEY_LEN, TXID_LEN } from '../types.js'
 import type { Node, ChildEntry, ISOConfig } from '../types.js'
 import { META_FLAG } from '../../tx/opreturn.js'
+import { buildOPReturnData, buildOPReturnScript } from '../../tx/index.js'
+import type { TxOutput } from '../../tx/index.js'
 
 /** Creates a test pubkey filled with a byte value. */
 function testPubKey(fill: number): Uint8Array {
@@ -15,6 +26,34 @@ function testPubKey(fill: number): Uint8Array {
 /** Creates a test 32-byte hash. */
 function testHash(fill: number): Uint8Array {
   return new Uint8Array(32).fill(fill)
+}
+
+function generatePubKey(): PublicKey {
+  return PublicKey.fromPrivateKey(PrivateKey.fromRandom())
+}
+
+function buildNodeOpOutputs(
+  pub: PublicKey,
+  parentTxID: Uint8Array,
+  payload: Uint8Array,
+): [TxOutput, TxOutput] {
+  const pushes = buildOPReturnData(pub, parentTxID, payload)
+  const opReturnScript = buildOPReturnScript(pushes)
+  const opReturnOutput: TxOutput = {
+    value: 0n,
+    scriptPubKey: Uint8Array.from(opReturnScript.toBinary()),
+  }
+
+  const p2pkhOutput: TxOutput = {
+    value: 1n,
+    scriptPubKey: new Uint8Array([
+      0x76, 0xa9, 0x14,
+      ...new Uint8Array(20).fill(0xab),
+      0x88, 0xac,
+    ]),
+  }
+
+  return [opReturnOutput, p2pkhOutput]
 }
 
 describe('serializePayload / parsePayload round-trip', () => {
@@ -417,6 +456,52 @@ describe('parseNodeFromPushesWithOutpoint', () => {
     expect(parsed.vout).toBe(5)
     expect(parsed.txID).toEqual(txID)
     expect(parsed.pNode).toEqual(pNode)
+  })
+})
+
+describe('parseTxToNodes', () => {
+  it('parses node with nodeVout for non-delete op', () => {
+    const node = createNode()
+    node.version = 1
+    node.type = NodeType.File
+    node.op = OpType.Create
+    const payload = serializePayload(node)
+
+    const [opReturn, p2pkh] = buildNodeOpOutputs(
+      generatePubKey(),
+      testHash(0x31),
+      payload,
+    )
+
+    const txID = testHash(0x41)
+    const nodes = parseTxToNodes([opReturn, p2pkh], txID)
+
+    expect(nodes).toHaveLength(1)
+    expect(nodes[0].txID).toEqual(txID)
+    expect(nodes[0].vout).toBe(1) // paired P2PKH node output
+    expect(nodes[0].parentTxID).toEqual(testHash(0x31))
+  })
+
+  it('uses OP_RETURN vout for delete op', () => {
+    const node = createNode()
+    node.version = 1
+    node.type = NodeType.File
+    node.op = OpType.Delete
+    const payload = serializePayload(node)
+
+    const [opReturn] = buildNodeOpOutputs(
+      generatePubKey(),
+      testHash(0x51),
+      payload,
+    )
+
+    const txID = testHash(0x61)
+    const nodes = parseTxToNodes([opReturn], txID)
+
+    expect(nodes).toHaveLength(1)
+    expect(nodes[0].txID).toEqual(txID)
+    expect(nodes[0].vout).toBe(0) // delete has no paired node output
+    expect(nodes[0].op).toBe(OpType.Delete)
   })
 })
 

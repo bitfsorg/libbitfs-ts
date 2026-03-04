@@ -9,6 +9,8 @@ import { NodeType, AccessLevel, LinkType, createNode, MAX_PAYLOAD_SIZE, COMPRESS
 import { MetanetError, ErrInvalidPayload, ErrInvalidOPReturn } from './errors.js'
 import { META_FLAG } from '../tx/opreturn.js'
 import { timingSafeEqual } from '../util.js'
+import type { TxOutput } from '../tx/parse.js'
+import { parseTxNodeOps } from '../tx/parse.js'
 import {
   TAG_VERSION,
   TAG_TYPE,
@@ -536,25 +538,35 @@ export function parsePayload(data: Uint8Array): Node {
  * Expects pushes: [MetaFlag, P_node, ParentTxID, Payload].
  */
 export function parseNodeFromPushes(pushes: Uint8Array[]): Node {
+  const invalid = ErrInvalidOPReturn()
+
   if (pushes.length < 4) {
-    throw new ErrInvalidOPReturn(`expected 4 data pushes, got ${pushes.length}`)
+    throw new MetanetError(
+      `${invalid.message}: expected 4 data pushes, got ${pushes.length}`,
+      invalid.code,
+    )
   }
 
   if (!timingSafeEqual(pushes[0], META_FLAG)) {
-    throw new ErrInvalidOPReturn('invalid MetaFlag')
+    throw new MetanetError(
+      `${invalid.message}: invalid MetaFlag`,
+      invalid.code,
+    )
   }
 
   const pNode = pushes[1]
   if (pNode.length !== COMPRESSED_PUBKEY_LEN) {
-    throw new ErrInvalidOPReturn(
-      `P_node must be ${COMPRESSED_PUBKEY_LEN} bytes, got ${pNode.length}`,
+    throw new MetanetError(
+      `${invalid.message}: P_node must be ${COMPRESSED_PUBKEY_LEN} bytes, got ${pNode.length}`,
+      invalid.code,
     )
   }
 
   const parentTxID = pushes[2]
   if (parentTxID.length !== 0 && parentTxID.length !== TXID_LEN) {
-    throw new ErrInvalidOPReturn(
-      `parent TxID must be 0 or ${TXID_LEN} bytes, got ${parentTxID.length}`,
+    throw new MetanetError(
+      `${invalid.message}: parent TxID must be 0 or ${TXID_LEN} bytes, got ${parentTxID.length}`,
+      invalid.code,
     )
   }
 
@@ -587,4 +599,36 @@ export function parseNodeFromPushesWithOutpoint(
   const node = parseNodeFromPushesWithTxID(pushes, txID)
   node.vout = vout
   return node
+}
+
+/**
+ * Parses all Metanet node operations from transaction outputs and returns
+ * populated Node objects with TxID and Vout set.
+ *
+ * For non-delete ops, Vout is the paired P2PKH node refresh output index.
+ * For delete ops, Vout is the OP_RETURN output index.
+ */
+export function parseTxToNodes(outputs: TxOutput[], txID: Uint8Array): Node[] {
+  const ops = parseTxNodeOps(outputs)
+  const nodes: Node[] = []
+
+  for (const op of ops) {
+    const pushes: Uint8Array[] = [
+      META_FLAG,
+      op.pNode,
+      op.parentTxID,
+      op.payload,
+    ]
+
+    const vout = op.isDelete ? op.vout : op.nodeVout
+    try {
+      const node = parseNodeFromPushesWithOutpoint(pushes, txID, vout)
+      nodes.push(node)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      throw new MetanetError(`parsing node at vout ${op.vout}: ${msg}`, ErrInvalidPayload().code)
+    }
+  }
+
+  return nodes
 }
