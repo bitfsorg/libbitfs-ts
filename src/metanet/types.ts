@@ -178,7 +178,7 @@ export interface Node {
   registryVout: number
   /** ISO configuration (null = no ISO). */
   iso: ISOConfig | null
-  /** ACL reference (group pubkey hash or ACL TxID). */
+  /** ACL reference (ACL node compressed pubkey, 33 bytes). */
   aclRef: Uint8Array
 
   // Anchor-specific fields (NodeTypeAnchor only)
