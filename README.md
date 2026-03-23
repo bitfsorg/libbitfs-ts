@@ -75,8 +75,8 @@ const mnemonic = wallet.generateMnemonic(wallet.MNEMONIC_12_WORDS)
 const seed = wallet.seedFromMnemonic(mnemonic, '')
 const w = new wallet.Wallet(seed, wallet.MainNet)
 
-// Derive a file key for vault 0, file index 5
-const { privateKey, publicKey } = w.deriveFileKey(0, 5)
+// Derive the root key for vault 0
+const { privateKey, publicKey } = w.deriveVaultRootKey(0)
 ```
 
 ### Build a Metanet transaction
