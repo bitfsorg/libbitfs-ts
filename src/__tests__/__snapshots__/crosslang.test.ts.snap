@@ -1,5 +1,5 @@
-// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
 
-exports[`cross-language: payment_htlc_script > buildHTLC produces deterministic plain Bitcoin Script HTLC 1`] = `"10aabbccddeeff001122334455667788997563a8200102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f208876a914aabbccddee00112233445566778899aabbccddee88ac6776a914168b992bcfc44050310b3a94bd0771136d0b28d188ac68"`;
+exports[`cross-language: payment_htlc_script buildHTLC produces deterministic plain Bitcoin Script HTLC 1`] = `"10aabbccddeeff001122334455667788997563a8200102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f208876a914aabbccddee00112233445566778899aabbccddee88ac6776a914168b992bcfc44050310b3a94bd0771136d0b28d188ac68"`;
 
-exports[`cross-language: payment_htlc_script > buildHTLC produces deterministic script (with different invoice ID) 1`] = `"1000112233445566778899aabbccddeeff7563a8200102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f208876a914aabbccddee00112233445566778899aabbccddee88ac6776a914168b992bcfc44050310b3a94bd0771136d0b28d188ac68"`;
+exports[`cross-language: payment_htlc_script buildHTLC produces deterministic script (with different invoice ID) 1`] = `"1000112233445566778899aabbccddeeff7563a8200102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f208876a914aabbccddee00112233445566778899aabbccddee88ac6776a914168b992bcfc44050310b3a94bd0771136d0b28d188ac68"`;
