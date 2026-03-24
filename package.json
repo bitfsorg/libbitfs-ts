@@ -11,6 +11,10 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./util": {
+      "types": "./dist/util.d.ts",
+      "import": "./dist/util.js"
+    },
     "./method42": {
       "types": "./dist/method42/index.d.ts",
       "import": "./dist/method42/index.js"
