@@ -1,4 +1,5 @@
 export { BitfsError } from './errors.js'
+export { hexToBytes } from './util.js'
 
 export * as method42 from './method42/index.js'
 export * as wallet from './wallet/index.js'
