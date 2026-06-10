@@ -29,17 +29,43 @@ export const MNEMONIC_12_WORDS = 128
 /** Entropy bits for a 24-word BIP39 mnemonic. */
 export const MNEMONIC_24_WORDS = 256
 
-/** Argon2id time cost (iterations). */
-export const ARGON2_TIME = 10
+/**
+ * Argon2id time cost (iterations).
+ *
+ * Canonical spec parameters (t=3, m=64 MB, p=4, dkLen=32) — must stay in sync
+ * with the design docs and libbitfs-go (`wallet/seed.go`) so that wallet.enc
+ * files are byte-compatible across implementations. The encryption header
+ * (salt||nonce) does NOT store KDF parameters, so both sides must agree.
+ */
+export const ARGON2_TIME = 3
 
-/** Argon2id memory cost in KiB (256 MB). */
-export const ARGON2_MEMORY = 262144 // 256 * 1024
+/** Argon2id memory cost in KiB (64 MB). See ARGON2_TIME for spec notes. */
+export const ARGON2_MEMORY = 65536 // 64 * 1024
 
-/** Argon2id parallelism (threads). */
-export const ARGON2_PARALLELISM = 1
+/** Argon2id parallelism (threads). See ARGON2_TIME for spec notes. */
+export const ARGON2_PARALLELISM = 4
 
 /** Argon2id output key length in bytes. */
 export const ARGON2_KEY_LEN = 32
+
+/**
+ * Legacy Argon2id parameters used by libbitfs-ts versions <= 0.1.0
+ * (t=10, m=256 MB, p=1), which deviated from the spec and made TS-encrypted
+ * wallet.enc files undecryptable by libbitfs-go.
+ *
+ * Kept ONLY as a decryption fallback so wallets encrypted by older TS releases
+ * remain readable. New encryptions always use the spec parameters above.
+ *
+ * Removal condition: drop this fallback once no wallet.enc encrypted by a
+ * pre-spec TS release is expected in the wild (i.e. after a forced re-encrypt
+ * / wallet migration release).
+ */
+export const LEGACY_ARGON2_PARAMS = {
+  t: 10,
+  m: 262144, // 256 * 1024 KiB
+  p: 1,
+  dkLen: 32,
+} as const
 
 /** Salt length in bytes. */
 export const SALT_LEN = 16
@@ -164,36 +190,28 @@ export async function encryptSeed(seed: Uint8Array, password: string): Promise<U
   }
 }
 
+/** Argon2id parameter set used for a single decryption attempt. */
+interface Argon2Params {
+  t: number
+  m: number
+  p: number
+  dkLen: number
+}
+
 /**
- * Decrypt the seed from the encrypted format.
- *
- * Input format: salt(16B) || nonce(12B) || ciphertext
- *
- * Derives key with Argon2id, decrypts with AES-256-GCM, then verifies
- * the SHA256(seed)[:4] checksum to confirm correct decryption.
- *
- * @param encrypted - The encrypted seed bytes
- * @param password - The password for key derivation
- * @returns The decrypted seed as Uint8Array
+ * Single decryption attempt with a specific Argon2id parameter set.
+ * Throws DecryptionFailedError on GCM failure, ChecksumMismatchError on
+ * checksum mismatch.
  */
-export async function decryptSeed(encrypted: Uint8Array, password: string): Promise<Uint8Array> {
-  const minLen = SALT_LEN + NONCE_LEN + CHECKSUM_LEN
-  if (encrypted.length < minLen) {
-    throw new DecryptionFailedError()
-  }
-
-  // Parse components
-  const salt = encrypted.slice(0, SALT_LEN)
-  const nonce = encrypted.slice(SALT_LEN, SALT_LEN + NONCE_LEN)
-  const ciphertext = encrypted.slice(SALT_LEN + NONCE_LEN)
-
-  // Derive decryption key using Argon2id with same parameters
-  const derivedKey = argon2id(new TextEncoder().encode(password), salt, {
-    t: ARGON2_TIME,
-    m: ARGON2_MEMORY,
-    p: ARGON2_PARALLELISM,
-    dkLen: ARGON2_KEY_LEN,
-  })
+async function decryptSeedWithParams(
+  salt: Uint8Array,
+  nonce: Uint8Array,
+  ciphertext: Uint8Array,
+  password: string,
+  params: Argon2Params,
+): Promise<Uint8Array> {
+  // Derive decryption key using Argon2id with the given parameters
+  const derivedKey = argon2id(new TextEncoder().encode(password), salt, params)
 
   let plaintext: Uint8Array | undefined
   try {
@@ -233,5 +251,58 @@ export async function decryptSeed(encrypted: Uint8Array, password: string): Prom
     // S-04: Zero key material after use
     derivedKey.fill(0)
     if (plaintext) plaintext.fill(0)
+  }
+}
+
+/**
+ * Decrypt the seed from the encrypted format.
+ *
+ * Input format: salt(16B) || nonce(12B) || ciphertext
+ *
+ * Derives key with Argon2id, decrypts with AES-256-GCM, then verifies
+ * the SHA256(seed)[:4] checksum to confirm correct decryption.
+ *
+ * Tries the canonical spec parameters first (t=3, m=64 MB, p=4 — shared with
+ * libbitfs-go). If GCM decryption fails or the checksum does not match, falls
+ * back once to the legacy TS parameters (t=10, m=256 MB, p=1) used by
+ * libbitfs-ts <= 0.1.0, so wallets encrypted by older TS releases stay
+ * readable. See LEGACY_ARGON2_PARAMS for the removal condition. Only when
+ * both attempts fail is an error thrown (wrong password / corrupted data).
+ *
+ * @param encrypted - The encrypted seed bytes
+ * @param password - The password for key derivation
+ * @returns The decrypted seed as Uint8Array
+ */
+export async function decryptSeed(encrypted: Uint8Array, password: string): Promise<Uint8Array> {
+  const minLen = SALT_LEN + NONCE_LEN + CHECKSUM_LEN
+  if (encrypted.length < minLen) {
+    throw new DecryptionFailedError()
+  }
+
+  // Parse components
+  const salt = encrypted.slice(0, SALT_LEN)
+  const nonce = encrypted.slice(SALT_LEN, SALT_LEN + NONCE_LEN)
+  const ciphertext = encrypted.slice(SALT_LEN + NONCE_LEN)
+
+  // Attempt 1: canonical spec parameters (Go-compatible).
+  let primaryError: unknown
+  try {
+    return await decryptSeedWithParams(salt, nonce, ciphertext, password, {
+      t: ARGON2_TIME,
+      m: ARGON2_MEMORY,
+      p: ARGON2_PARALLELISM,
+      dkLen: ARGON2_KEY_LEN,
+    })
+  } catch (err) {
+    primaryError = err
+  }
+
+  // Attempt 2: legacy TS parameters (libbitfs-ts <= 0.1.0 fallback).
+  try {
+    return await decryptSeedWithParams(salt, nonce, ciphertext, password, LEGACY_ARGON2_PARAMS)
+  } catch {
+    // Both parameter sets failed: surface the primary (spec-path) error,
+    // preserving the original semantics (wrong password / corrupted data).
+    throw primaryError
   }
 }

@@ -4,11 +4,13 @@
   "description": "TypeScript client library for BitFS — mirrors libbitfs-go",
   "type": "module",
   "main": "./dist/index.js",
+  "browser": "./dist/index.browser.js",
   "types": "./dist/index.d.ts",
   "sideEffects": false,
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
+      "browser": "./dist/index.browser.js",
       "import": "./dist/index.js"
     },
     "./util": {
@@ -33,6 +35,7 @@
     },
     "./storage": {
       "types": "./dist/storage/index.d.ts",
+      "browser": "./dist/storage/index.browser.js",
       "import": "./dist/storage/index.js"
     },
     "./tx": {

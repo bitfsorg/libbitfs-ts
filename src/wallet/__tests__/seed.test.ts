@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest'
+import { argon2id } from '@noble/hashes/argon2'
+import { sha256 } from '@noble/hashes/sha2'
 import {
   generateMnemonic,
   validateMnemonic,
@@ -7,6 +9,10 @@ import {
   decryptSeed,
   MNEMONIC_12_WORDS,
   MNEMONIC_24_WORDS,
+  ARGON2_TIME,
+  ARGON2_MEMORY,
+  ARGON2_PARALLELISM,
+  LEGACY_ARGON2_PARAMS,
   SALT_LEN,
   NONCE_LEN,
   CHECKSUM_LEN,
@@ -15,6 +21,31 @@ import {
   InvalidSeedError,
   DecryptionFailedError,
 } from '../index.js'
+import { importAESKey, aesGcmEncrypt } from '../../subtle.js'
+
+/**
+ * Encrypts a seed using the LEGACY Argon2id parameters (t=10, m=256 MB, p=1)
+ * exactly as libbitfs-ts <= 0.1.0 did, to exercise the decryption fallback.
+ */
+async function encryptSeedLegacy(seed: Uint8Array, password: string): Promise<Uint8Array> {
+  const salt = crypto.getRandomValues(new Uint8Array(SALT_LEN))
+  const derivedKey = argon2id(new TextEncoder().encode(password), salt, LEGACY_ARGON2_PARAMS)
+
+  const checksum = sha256(seed).slice(0, CHECKSUM_LEN)
+  const plaintext = new Uint8Array(seed.length + CHECKSUM_LEN)
+  plaintext.set(seed, 0)
+  plaintext.set(checksum, seed.length)
+
+  const nonce = crypto.getRandomValues(new Uint8Array(NONCE_LEN))
+  const cryptoKey = await importAESKey(derivedKey, ['encrypt'])
+  const ciphertext = new Uint8Array(await aesGcmEncrypt(cryptoKey, plaintext, nonce))
+
+  const result = new Uint8Array(SALT_LEN + NONCE_LEN + ciphertext.length)
+  result.set(salt, 0)
+  result.set(nonce, SALT_LEN)
+  result.set(ciphertext, SALT_LEN + NONCE_LEN)
+  return result
+}
 
 // ---------------------------------------------------------------------------
 // Mnemonic generation
@@ -122,7 +153,15 @@ describe('seedFromMnemonic', () => {
 // ---------------------------------------------------------------------------
 
 describe('encryptSeed / decryptSeed', () => {
-  // Argon2id with 256 MB memory, t=10 iterations is ~15-20s per call in pure JS
+  it('uses the canonical spec Argon2id parameters (t=3, m=64MB, p=4)', () => {
+    // Spec / libbitfs-go compatibility guard: wallet.enc stores no KDF params,
+    // so these constants must never drift from libbitfs-go wallet/seed.go.
+    expect(ARGON2_TIME).toBe(3)
+    expect(ARGON2_MEMORY).toBe(65536)
+    expect(ARGON2_PARALLELISM).toBe(4)
+  })
+
+  // Legacy Argon2id (256 MB memory, t=10) is ~15-20s per call in pure JS
   it('round-trips correctly', { timeout: 120_000 }, async () => {
     const seed = new Uint8Array(64)
     for (let i = 0; i < seed.length; i++) seed[i] = i
@@ -135,7 +174,10 @@ describe('encryptSeed / decryptSeed', () => {
     expect(decrypted).toEqual(seed)
   })
 
-  it('fails with wrong password', { timeout: 120_000 }, async () => {
+  // Wrong-password / corrupted-data paths run BOTH the spec-parameter attempt
+  // and the legacy-parameter fallback (t=10, m=256 MB — heavy in pure JS),
+  // so they get generous timeouts.
+  it('fails with wrong password', { timeout: 600_000 }, async () => {
     const seed = new Uint8Array(64)
     const password = 'correct-password'
 
@@ -201,7 +243,7 @@ describe('encryptSeed / decryptSeed', () => {
     expect(allZeroNonce).toBe(false)
   })
 
-  it('fails on corrupted ciphertext', { timeout: 120_000 }, async () => {
+  it('fails on corrupted ciphertext', { timeout: 600_000 }, async () => {
     const seed = new Uint8Array(64)
     for (let i = 0; i < seed.length; i++) seed[i] = i
     const password = 'correct-password'
@@ -232,4 +274,40 @@ describe('encryptSeed / decryptSeed', () => {
     const decrypted = await decryptSeed(encrypted, password)
     expect(decrypted).toEqual(seed)
   })
+
+  // ---------------------------------------------------------------------------
+  // Legacy Argon2id parameter fallback (libbitfs-ts <= 0.1.0 wallets)
+  // ---------------------------------------------------------------------------
+
+  it(
+    'decrypts ciphertext encrypted with legacy Argon2id parameters (fallback)',
+    { timeout: 600_000 },
+    async () => {
+      const seed = new Uint8Array(64)
+      for (let i = 0; i < seed.length; i++) seed[i] = i * 2 + 1
+      const password = 'legacy-wallet-password'
+
+      const encrypted = await encryptSeedLegacy(seed, password)
+
+      // Spec-parameter attempt fails, legacy fallback succeeds.
+      const decrypted = await decryptSeed(encrypted, password)
+      expect(decrypted).toEqual(seed)
+    },
+  )
+
+  it(
+    'fails with wrong password on legacy-encrypted ciphertext (both paths fail)',
+    { timeout: 600_000 },
+    async () => {
+      const seed = new Uint8Array(64)
+      for (let i = 0; i < seed.length; i++) seed[i] = i + 7
+      const encrypted = await encryptSeedLegacy(seed, 'correct-password')
+
+      // Both the spec-parameter path and the legacy fallback must fail,
+      // surfacing the original wrong-password error.
+      await expect(decryptSeed(encrypted, 'wrong-password')).rejects.toThrow(
+        DecryptionFailedError,
+      )
+    },
+  )
 })

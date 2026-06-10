@@ -212,10 +212,21 @@ export async function buildHTLCFundingTx(params: HTLCFundingParams): Promise<HTL
   }
 
   // Estimate fee using actual HTLC script size.
+  // First estimate without change output to check if change is needed.
+  // Mirrors libbitfs-go payment/htlc_tx.go BuildHTLCFundingTx.
   const htlcOutputSize = 8 + 1 + htlcScript.length    // satoshis + varint + script
   const changeOutputSize = 8 + 1 + 25                  // P2PKH: 8 + varint + OP_DUP..OP_CHECKSIG
-  const estSize = 10 + params.utxos.length * 148 + htlcOutputSize + changeOutputSize
-  const estFee = estimateFeeByKB(estSize, feeRate)
+  const baseTxSize = 10 + params.utxos.length * 148 + htlcOutputSize
+
+  // Estimate with change output first.
+  const estSizeWithChange = baseTxSize + changeOutputSize
+  const estFeeWithChange = estimateFeeByKB(estSizeWithChange, feeRate)
+
+  // Determine if a change output is warranted.
+  const totalNeededWithChange = htlcAmount + estFeeWithChange
+  const hasChange = totalInput > totalNeededWithChange
+  // No change output: recalculate fee without the change output size.
+  const estFee = hasChange ? estFeeWithChange : estimateFeeByKB(baseTxSize, feeRate)
 
   const totalNeeded = htlcAmount + estFee
   if (totalInput < totalNeeded) {
@@ -242,9 +253,9 @@ export async function buildHTLCFundingTx(params: HTLCFundingParams): Promise<HTL
     satoshis: Number(htlcAmount),
   })
 
-  // Output 1: change (if any).
-  const changeAmount = totalInput - htlcAmount - estFee
-  if (changeAmount > 0n) {
+  // Output 1: change (if any surplus remains after HTLC amount + fee).
+  if (hasChange) {
+    const changeAmount = totalInput - htlcAmount - estFee
     const p2pkh = new P2PKH()
     const changeLockingScript = p2pkh.lock(Array.from(params.changeAddr))
     tx.addOutput({

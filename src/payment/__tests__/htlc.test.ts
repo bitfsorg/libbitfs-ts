@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { Hash, OP, Script, Transaction, PrivateKey, UnlockingScript, LockingScript } from '@bsv/sdk'
+import { Hash, OP, Script, Transaction, PrivateKey, UnlockingScript, LockingScript, P2PKH } from '@bsv/sdk'
 import {
   buildHTLC,
+  buildHTLCFundingTx,
   extractCapsuleHashFromHTLC,
   extractInvoiceIDFromHTLC,
 } from '../htlc.js'
@@ -15,7 +16,7 @@ import {
   HTLC_BUYER_PKH_OFFSET,
   HTLC_MIN_SCRIPT_LEN,
 } from '../artifact.js'
-import type { HTLCParams, Invoice, PaymentProof } from '../types.js'
+import type { HTLCParams, HTLCFundingParams, HTLCUTXO, Invoice, PaymentProof } from '../types.js'
 import {
   DEFAULT_HTLC_TIMEOUT,
   MIN_HTLC_TIMEOUT,
@@ -607,6 +608,49 @@ describe('parseHTLCPreimage', () => {
     expect(() => parseHTLCPreimage(rawTx, null)).toThrow('no HTLC preimage found')
   })
 
+  it('rejects preimage longer than 64 bytes (strict length)', () => {
+    // On-chain OP_SHA256 hashes the full pushed datum, so a 65-byte push can
+    // never satisfy the hash lock and must not be parsed as a preimage.
+    const tx = new Transaction()
+
+    const longPreimage = new Uint8Array(65)
+    longPreimage[0] = 0xf1
+    longPreimage[32] = 0xca
+
+    const dummySig = new Uint8Array(71)
+    dummySig[0] = 0x30
+
+    const dummyPub = new Uint8Array(33)
+    dummyPub[0] = 0x02
+
+    const unlockScript = new Script()
+    unlockScript.writeBin(Array.from(dummySig))
+    unlockScript.writeBin(Array.from(dummyPub))
+    unlockScript.writeBin(Array.from(longPreimage))
+    unlockScript.writeOpCode(OP.OP_1)
+
+    tx.addInput({
+      sourceTXID: '0000000000000000000000000000000000000000000000000000000000000001',
+      sourceOutputIndex: 0,
+      sequence: 0xffffffff,
+      unlockingScript: UnlockingScript.fromBinary(unlockScript.toBinary()),
+    })
+
+    const outScript = new Script()
+    outScript.writeOpCode(OP.OP_DUP)
+    outScript.writeOpCode(OP.OP_HASH160)
+    outScript.writeBin(Array.from(new Uint8Array(20)))
+    outScript.writeOpCode(OP.OP_EQUALVERIFY)
+    outScript.writeOpCode(OP.OP_CHECKSIG)
+    tx.addOutput({
+      lockingScript: LockingScript.fromBinary(outScript.toBinary()),
+      satoshis: 1000,
+    })
+
+    const rawTx = Uint8Array.from(tx.toBinary())
+    expect(() => parseHTLCPreimage(rawTx, null)).toThrow('no HTLC preimage found')
+  })
+
   it('verifies fileTxID when provided', () => {
     const tx = new Transaction()
 
@@ -694,6 +738,108 @@ describe('parseHTLCPreimage', () => {
 
     const rawTx = Uint8Array.from(tx.toBinary())
     expect(() => parseHTLCPreimage(rawTx, null)).toThrow('no HTLC preimage found')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// buildHTLCFundingTx fee / change tests (must mirror Go htlc_tx.go)
+// ---------------------------------------------------------------------------
+
+describe('buildHTLCFundingTx fee and change', () => {
+  // Fixed key so fee numbers below are stable regardless of key choice.
+  const buyerPrivKey = PrivateKey.fromString(
+    '0000000000000000000000000000000000000000000000000000000000000001',
+    'hex',
+  )
+
+  function makeUTXO(amount: bigint): HTLCUTXO {
+    const buyerPubKey = buyerPrivKey.toPublicKey().toDER() as number[]
+    const buyerPkh = Hash.hash160(buyerPubKey) as number[]
+    const lockingScript = new P2PKH().lock(buyerPkh)
+    const txID = new Uint8Array(32)
+    txID[0] = 0x01
+    return {
+      txID,
+      vout: 0,
+      amount,
+      scriptPubKey: Uint8Array.from(lockingScript.toBinary()),
+    }
+  }
+
+  function makeFundingParams(inputAmount: bigint, htlcAmount: bigint): HTLCFundingParams {
+    return {
+      buyerPrivKey,
+      sellerPubKeyHash: makeSellerPKH(),
+      sellerPubKey: makeSellerPubKey(),
+      capsuleHash: makeCapsuleHash(),
+      amount: htlcAmount,
+      timeout: DEFAULT_HTLC_TIMEOUT,
+      utxos: [makeUTXO(inputAmount)],
+      changeAddr: new Uint8Array(PUB_KEY_HASH_LEN).fill(0xdd),
+      feeRate: 0, // default 100 sat/KB
+      invoiceID: makeInvoiceID(),
+    }
+  }
+
+  // Size model (mirrors Go): with 1 input and a 106-byte HTLC script:
+  //   htlcOutputSize = 8 + 1 + 106 = 115
+  //   baseTxSize     = 10 + 148 + 115 = 273  -> feeNoChange   = ceil(27300/1000) = 28
+  //   withChangeSize = 273 + 34 = 307        -> feeWithChange = ceil(30700/1000) = 31
+  const HTLC_AMOUNT = 1000n
+  const FEE_NO_CHANGE = 28n
+  const FEE_WITH_CHANGE = 31n
+
+  it('adds a change output when input exceeds amount + fee-with-change', async () => {
+    const surplus = 500n
+    const input = HTLC_AMOUNT + FEE_WITH_CHANGE + surplus
+    const result = await buildHTLCFundingTx(makeFundingParams(input, HTLC_AMOUNT))
+
+    const tx = Transaction.fromBinary(Array.from(result.rawTx))
+    expect(tx.outputs).toHaveLength(2)
+    expect(BigInt(tx.outputs[0].satoshis!)).toBe(HTLC_AMOUNT)
+    // changeAmount = totalInput - htlcAmount - feeWithChange
+    expect(BigInt(tx.outputs[1].satoshis!)).toBe(surplus)
+    // Actual fee paid equals the with-change estimate.
+    const totalOut = BigInt(tx.outputs[0].satoshis!) + BigInt(tx.outputs[1].satoshis!)
+    expect(input - totalOut).toBe(FEE_WITH_CHANGE)
+  })
+
+  it('omits change when input exactly equals amount + fee-with-change (boundary)', async () => {
+    // hasChange requires totalInput > amount + feeWithChange (strict, as in Go).
+    const input = HTLC_AMOUNT + FEE_WITH_CHANGE
+    const result = await buildHTLCFundingTx(makeFundingParams(input, HTLC_AMOUNT))
+
+    const tx = Transaction.fromBinary(Array.from(result.rawTx))
+    expect(tx.outputs).toHaveLength(1)
+    expect(BigInt(tx.outputs[0].satoshis!)).toBe(HTLC_AMOUNT)
+    // Surplus above the no-change fee is absorbed as extra miner fee.
+    expect(input - HTLC_AMOUNT).toBe(FEE_WITH_CHANGE)
+  })
+
+  it('succeeds without change when input only covers the no-change fee', async () => {
+    // Old (pre-fix) logic required amount + feeWithChange and would reject this.
+    const input = HTLC_AMOUNT + FEE_NO_CHANGE + 1n
+    const result = await buildHTLCFundingTx(makeFundingParams(input, HTLC_AMOUNT))
+
+    const tx = Transaction.fromBinary(Array.from(result.rawTx))
+    expect(tx.outputs).toHaveLength(1)
+    expect(BigInt(tx.outputs[0].satoshis!)).toBe(HTLC_AMOUNT)
+  })
+
+  it('succeeds when input exactly equals amount + no-change fee', async () => {
+    const input = HTLC_AMOUNT + FEE_NO_CHANGE
+    const result = await buildHTLCFundingTx(makeFundingParams(input, HTLC_AMOUNT))
+
+    const tx = Transaction.fromBinary(Array.from(result.rawTx))
+    expect(tx.outputs).toHaveLength(1)
+    expect(BigInt(tx.outputs[0].satoshis!)).toBe(HTLC_AMOUNT)
+  })
+
+  it('throws insufficient payment when input is below amount + no-change fee', async () => {
+    const input = HTLC_AMOUNT + FEE_NO_CHANGE - 1n
+    await expect(buildHTLCFundingTx(makeFundingParams(input, HTLC_AMOUNT))).rejects.toThrow(
+      'insufficient payment',
+    )
   })
 })
 

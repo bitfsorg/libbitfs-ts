@@ -158,9 +158,12 @@ export function parseHTLCPreimage(
     }
 
     // The preimage is at chunks[2] (third element): fileTxID (32) || capsule (32) = 64 bytes.
+    // Strict length check: on-chain OP_SHA256 hashes the entire pushed datum,
+    // so anything other than exactly 64 bytes can never satisfy the hash lock
+    // and must not be accepted here.
     const preimageChunk = chunks[2]
-    if (preimageChunk.data == null || preimageChunk.data.length < 64) {
-      continue // preimage must be fileTxID (32) + capsule (32)
+    if (preimageChunk.data == null || preimageChunk.data.length !== 64) {
+      continue // preimage must be exactly fileTxID (32) + capsule (32)
     }
 
     const preimageData = Uint8Array.from(preimageChunk.data)
